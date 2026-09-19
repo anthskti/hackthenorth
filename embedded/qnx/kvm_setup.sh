@@ -12,13 +12,19 @@
     devc-serpl011-rpi5 -b115200 -c50000000 -e -F -u1 0x1f00030000,185
     waitfor /dev/ser1 5
   fi
-  stty baud=115200 par=none bits=8 stopb=1 < /dev/ser1
+  stty baud=115200 par=none bits=8 stopb=1 -isflow -osflow < /dev/ser1
   chmod 666 /dev/ser1
 
   # Restart the sensor service with the USB capture card config
   slay sensor 2>/dev/null
-  sleep 1
-  sensor -U 521:521,1001 -r /data/share/sensor -c /usr/etc/config/sensor/usb/usb_camera_jpeg.conf
+  sleep 2
+  nohup sensor -U 521:521,1001 -r /data/share/sensor \
+        -c /usr/etc/config/sensor/usb/usb_camera_jpeg.conf > /dev/null 2>&1 &
+  sleep 3
 
+  echo "serial:"
+  stty < /dev/ser1 | grep -E "flow|baud"
+  echo "sensor:"
+  pidin arg | grep "sensor -U"
   echo "kvm_setup: done $(date)"
 } > /tmp/kvm_setup.log 2>&1
