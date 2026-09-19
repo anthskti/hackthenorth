@@ -13,6 +13,9 @@ type VideoPaneProps = {
   useStream?: boolean;
   noUplink?: boolean;
   onManualInput?: (payload: ManualInputPayload) => void;
+  /** MJPEG frame size from kvmd (default 16:9 @ 480p → 854×480). */
+  streamWidth?: number;
+  streamHeight?: number;
 };
 
 export function VideoPane({
@@ -24,7 +27,10 @@ export function VideoPane({
   useStream = false,
   noUplink = false,
   onManualInput,
+  streamWidth = 854,
+  streamHeight = 480,
 }: VideoPaneProps) {
+  const streamAspect = streamWidth / streamHeight;
   const manualActive = mode === "manual" && !noUplink;
   const badgeLabel = noUplink
     ? "NO UPLINK"
@@ -37,15 +43,43 @@ export function VideoPane({
 
   const videoCoords = useCallback((clientX: number, clientY: number) => {
     const el = paneRef.current;
-    if (!el) return { x: 0, y: 0 };
+    if (!el) return null;
     const rect = el.getBoundingClientRect();
-    const x = Math.round(clientX - rect.left);
-    const y = Math.round(clientY - rect.top);
+    const paneW = rect.width;
+    const paneH = rect.height;
+    if (paneW <= 0 || paneH <= 0) return null;
+
+    const paneAspect = paneW / paneH;
+    let videoW: number;
+    let videoH: number;
+    let offsetX: number;
+    let offsetY: number;
+
+    if (paneAspect > streamAspect) {
+      videoH = paneH;
+      videoW = paneH * streamAspect;
+      offsetX = (paneW - videoW) / 2;
+      offsetY = 0;
+    } else {
+      videoW = paneW;
+      videoH = paneW / streamAspect;
+      offsetX = 0;
+      offsetY = (paneH - videoH) / 2;
+    }
+
+    const localX = clientX - rect.left - offsetX;
+    const localY = clientY - rect.top - offsetY;
+    if (localX < 0 || localY < 0 || localX > videoW || localY > videoH) {
+      return null;
+    }
+
+    const x = Math.round((localX / videoW) * streamWidth);
+    const y = Math.round((localY / videoH) * streamHeight);
     return {
-      x: Math.max(0, Math.min(x, Math.round(rect.width))),
-      y: Math.max(0, Math.min(y, Math.round(rect.height))),
+      x: Math.max(0, Math.min(streamWidth, x)),
+      y: Math.max(0, Math.min(streamHeight, y)),
     };
-  }, []);
+  }, [streamWidth, streamHeight, streamAspect]);
 
   const flushMove = useCallback(() => {
     rafRef.current = null;
@@ -57,22 +91,52 @@ export function VideoPane({
 
   const onMouseMove = useCallback(
     (e: React.MouseEvent) => {
-      if (!manualActive || !focused || !onManualInput) return;
-      pendingMoveRef.current = videoCoords(e.clientX, e.clientY);
+      if (!manualActive || !onManualInput) return;
+      const coords = videoCoords(e.clientX, e.clientY);
+      if (!coords) return;
+      pendingMoveRef.current = coords;
       if (rafRef.current === null) {
         rafRef.current = requestAnimationFrame(flushMove);
       }
     },
-    [manualActive, focused, onManualInput, videoCoords, flushMove],
+    [manualActive, onManualInput, videoCoords, flushMove],
   );
 
   const onMouseDown = useCallback(
     (e: React.MouseEvent) => {
-      if (!manualActive) return;
+      if (!manualActive || !onManualInput) return;
       paneRef.current?.focus();
+      const coords = videoCoords(e.clientX, e.clientY);
+      if (!coords) return;
       e.preventDefault();
+      const button =
+        e.button === 2 ? "right" : e.button === 1 ? "middle" : "left";
+      onManualInput({
+        action: "mouse_click",
+        button,
+        x: coords.x,
+        y: coords.y,
+      });
+    },
+    [manualActive, onManualInput, videoCoords],
+  );
+
+  const onContextMenu = useCallback(
+    (e: React.MouseEvent) => {
+      if (manualActive) e.preventDefault();
     },
     [manualActive],
+  );
+
+  const onWheel = useCallback(
+    (e: React.WheelEvent) => {
+      if (!manualActive || !onManualInput) return;
+      e.preventDefault();
+      const delta = Math.round(-e.deltaY / 40);
+      if (delta === 0) return;
+      onManualInput({ action: "mouse_wheel", delta });
+    },
+    [manualActive, onManualInput],
   );
 
   const onKeyDown = useCallback(
@@ -136,11 +200,13 @@ export function VideoPane({
         onBlur={onBlur}
         onMouseMove={onMouseMove}
         onMouseDown={onMouseDown}
+        onContextMenu={onContextMenu}
+        onWheel={onWheel}
         onKeyDown={onKeyDown}
         role={manualActive ? "application" : undefined}
         aria-label={
           manualActive
-            ? "Remote screen — click here, then type to send keys to the target"
+            ? "Remote screen — move mouse to hover, click to send pointer; click then type for keys"
             : "Remote screen"
         }
       >

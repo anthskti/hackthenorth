@@ -18,11 +18,13 @@ import (
 // PiClient talks to QNX kvmd over HTTP (see embedded/qnx/kvmd.c).
 // POST /key body is Leonardo lines, one per newline: t<text> p<hex> r<hex> k<hex> a
 type PiClient struct {
-	base     string
-	stream   string
-	key      string
-	snapshot string
-	http     *http.Client
+	base        string
+	stream      string
+	key         string
+	snapshot    string
+	streamWidth int
+	streamHeight int
+	http        *http.Client
 }
 
 func NewPiClient() *PiClient {
@@ -39,13 +41,32 @@ func NewPiClient() *PiClient {
 	if snap == "" && base != "" {
 		snap = base + "/snapshot.jpg"
 	}
+	sw, sh := streamDimensionsFromEnv()
 	return &PiClient{
-		base:     base,
-		stream:   stream,
-		key:      key,
-		snapshot: snap,
-		http:     &http.Client{Timeout: 15 * time.Second},
+		base:         base,
+		stream:       stream,
+		key:          key,
+		snapshot:     snap,
+		streamWidth:  sw,
+		streamHeight: sh,
+		http:         &http.Client{Timeout: 15 * time.Second},
 	}
+}
+
+func streamDimensionsFromEnv() (width, height int) {
+	width = 854
+	height = 480
+	if v := strings.TrimSpace(os.Getenv("QNX_STREAM_WIDTH")); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			width = n
+		}
+	}
+	if v := strings.TrimSpace(os.Getenv("QNX_STREAM_HEIGHT")); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			height = n
+		}
+	}
+	return width, height
 }
 
 func (p *PiClient) Enabled() bool {

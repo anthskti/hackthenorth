@@ -26,17 +26,25 @@ function applyStatus(
   setState(msg.mode === "ai" ? (msg.state ?? "idle") : null);
 }
 
+const DEFAULT_STREAM_WIDTH = 854;
+const DEFAULT_STREAM_HEIGHT = 480;
+
 function applySnapshot(
   snap: Awaited<ReturnType<typeof fetchStatus>>,
   setMode: (m: Mode) => void,
   setState: (s: AgentState | null) => void,
   setLogs: (l: LogEntry[]) => void,
   setPiConnected: (p: boolean) => void,
+  setStreamSize: (w: number, h: number) => void,
 ) {
   setMode(snap.mode);
   setState(snap.mode === "ai" ? (snap.state ?? "idle") : null);
   setLogs(snap.logs);
   setPiConnected(snap.pi_connected ?? false);
+  setStreamSize(
+    snap.stream_width ?? DEFAULT_STREAM_WIDTH,
+    snap.stream_height ?? DEFAULT_STREAM_HEIGHT,
+  );
 }
 
 type UseDashboardLiveOptions = {
@@ -50,7 +58,14 @@ export function useDashboardLive(options: UseDashboardLiveOptions = {}) {
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [wsConnected, setWsConnected] = useState(false);
   const [piConnected, setPiConnected] = useState(false);
+  const [streamWidth, setStreamWidth] = useState(DEFAULT_STREAM_WIDTH);
+  const [streamHeight, setStreamHeight] = useState(DEFAULT_STREAM_HEIGHT);
   const [backendReachable, setBackendReachable] = useState(false);
+
+  const setStreamSize = useCallback((w: number, h: number) => {
+    setStreamWidth(w);
+    setStreamHeight(h);
+  }, []);
 
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -60,16 +75,16 @@ export function useDashboardLive(options: UseDashboardLiveOptions = {}) {
     try {
       const snap = await fetchStatus();
       setBackendReachable(true);
-      applySnapshot(snap, setMode, setState, setLogs, setPiConnected);
+      applySnapshot(snap, setMode, setState, setLogs, setPiConnected, setStreamSize);
     } catch {
       setBackendReachable(false);
     }
-  }, []);
+  }, [setStreamSize]);
 
   const applySnapshotFromServer = useCallback((snap: Awaited<ReturnType<typeof fetchStatus>>) => {
     setBackendReachable(true);
-    applySnapshot(snap, setMode, setState, setLogs, setPiConnected);
-  }, []);
+    applySnapshot(snap, setMode, setState, setLogs, setPiConnected, setStreamSize);
+  }, [setStreamSize]);
 
   useEffect(() => {
     if (!enabled) {
@@ -152,6 +167,8 @@ export function useDashboardLive(options: UseDashboardLiveOptions = {}) {
     logs,
     wsConnected,
     piConnected,
+    streamWidth,
+    streamHeight,
     backendReachable,
     applySnapshotFromServer,
     sendManualInput,
