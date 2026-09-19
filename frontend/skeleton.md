@@ -2,7 +2,7 @@
 
 UI contract for the prototype dashboard. Single route: `/`. Backend contract: [backend/design.md](../backend/design.md).
 
-**Dev setup (prototype):** Next.js on `:3000`, Go on `:8080`. Proxy `/api`, `/ws`, and `/video` to the backend (see build step `next-proxy`). Do not embed static files in Go until demo packaging.
+**Dev setup (prototype):** Next.js on `:3000`, Go on `:8080`. [next.config.ts](next.config.ts) rewrites `/api`, `/ws`, `/video`, and `/ping` to the backend (`BACKEND_URL` env, default `http://127.0.0.1:8080`). Use helpers in [src/lib/backend.ts](src/lib/backend.ts) for URLs. Do not embed static files in Go until demo packaging.
 
 ---
 

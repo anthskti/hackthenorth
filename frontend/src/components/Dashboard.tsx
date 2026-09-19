@@ -9,7 +9,7 @@ import { VideoPane } from "./VideoPane";
 
 const FAKE_INITIAL_LOGS: LogEntry[] = [
   { text: "Dashboard connected (fake state)", ts: Date.now() - 60_000 },
-  { text: "Mode: AI — waiting for a goal", ts: Date.now() - 30_000 },
+  { text: "Mode: AI / waiting for a goal", ts: Date.now() - 30_000 },
 ];
 
 function appendLog(logs: LogEntry[], text: string): LogEntry[] {
