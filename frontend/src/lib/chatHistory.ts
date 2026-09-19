@@ -13,7 +13,7 @@ export type ChatThread = {
   updatedAt: number;
 };
 
-const STORAGE_PREFIX = "btos-chat-";
+const STORAGE_PREFIX = "orcactl-chat-";
 
 let idSeq = 0;
 
