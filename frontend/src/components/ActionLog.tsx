@@ -23,25 +23,28 @@ export function ActionLog({ logs }: ActionLogProps) {
   }, [logs]);
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col">
-      <h2 className="mb-2 text-xs font-medium uppercase tracking-wide text-zinc-500">
-        Action log
-      </h2>
+    <div className="flex h-[160px] min-h-[160px] shrink-0 flex-col border-t border-[var(--rule)]">
+      <div className="flex items-center justify-between border-b border-[var(--rule)] px-3 py-1">
+        <h2 className="font-mono text-[10px] uppercase tracking-[0.25em]">
+          Log
+        </h2>
+        <span className="font-mono text-[10px] tabular-nums opacity-60">
+          {logs.length}
+        </span>
+      </div>
       <div
-        className="min-h-0 flex-1 overflow-y-auto rounded-lg border border-zinc-200 bg-zinc-50 p-3 font-mono text-xs leading-relaxed dark:border-zinc-800 dark:bg-zinc-950"
+        className="min-h-0 flex-1 overflow-y-auto p-2 font-mono text-[11px] leading-relaxed"
         role="log"
         aria-live="polite"
       >
         {logs.length === 0 ? (
-          <p className="text-zinc-400">No entries yet.</p>
+          <p className="opacity-50">No entries yet.</p>
         ) : (
-          <ul className="space-y-2">
+          <ul className="space-y-1">
             {logs.map((entry, i) => (
-              <li key={`${entry.ts}-${i}`} className="text-zinc-700 dark:text-zinc-300">
-                <span className="text-zinc-400 dark:text-zinc-500">
-                  [{formatTime(entry.ts)}]
-                </span>{" "}
-                {entry.text}
+              <li key={`${entry.ts}-${i}`}>
+                <span className="opacity-50">[{formatTime(entry.ts)}]</span>{" "}
+                <span className="whitespace-pre-wrap break-all">{entry.text}</span>
               </li>
             ))}
           </ul>
