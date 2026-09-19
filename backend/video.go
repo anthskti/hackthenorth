@@ -11,7 +11,7 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-func handleVideoStream(frames *FrameBuffer) gin.HandlerFunc {
+func handleMockVideoStream(frames *FrameBuffer) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		c.Header("Cache-Control", "no-cache, no-store, must-revalidate")
 		c.Header("Connection", "close")

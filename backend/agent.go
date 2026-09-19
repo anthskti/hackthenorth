@@ -3,17 +3,22 @@ package main
 import (
 	"context"
 	"errors"
+	"os"
+	"strconv"
+	"strings"
 	"sync"
 	"time"
 )
 
 var (
-	errWrongMode    = errors.New("only available in AI mode")
-	errNotIdle      = errors.New("agent is not idle")
-	errNotPausable  = errors.New("agent is not running")
-	errNotPaused    = errors.New("agent is not paused")
-	errEmptyGoal    = errors.New("goal is required")
+	errWrongMode   = errors.New("only available in AI mode")
+	errNotIdle     = errors.New("agent is not idle")
+	errNotPausable = errors.New("agent is not running")
+	errNotPaused   = errors.New("agent is not paused")
+	errEmptyGoal   = errors.New("goal is required")
 )
+
+const defaultAgentMaxSteps = 8
 
 type runPhase int
 
@@ -24,19 +29,43 @@ const (
 )
 
 type AgentLoop struct {
-	mu     sync.Mutex
-	store  *Store
-	hub    *Hub
-	llm    *LLMClient
-	frames *FrameBuffer
-	goal   string
-	paused bool
-	phase  runPhase
-	cancel context.CancelFunc
+	mu        sync.Mutex
+	store     *Store
+	hub       *Hub
+	llm       *LLMClient
+	pi        *PiClient
+	frames    *FrameBuffer
+	maxSteps  int
+	goal      string
+	paused    bool
+	phase     runPhase
+	cancel    context.CancelFunc
 }
 
-func NewAgentLoop(store *Store, hub *Hub, llm *LLMClient, frames *FrameBuffer) *AgentLoop {
-	return &AgentLoop{store: store, hub: hub, llm: llm, frames: frames}
+func agentMaxSteps() int {
+	v := strings.TrimSpace(os.Getenv("AGENT_MAX_STEPS"))
+	if v == "" {
+		return defaultAgentMaxSteps
+	}
+	n, err := strconv.Atoi(v)
+	if err != nil || n < 1 {
+		return defaultAgentMaxSteps
+	}
+	if n > 30 {
+		return 30
+	}
+	return n
+}
+
+func NewAgentLoop(store *Store, hub *Hub, llm *LLMClient, pi *PiClient, frames *FrameBuffer) *AgentLoop {
+	return &AgentLoop{
+		store:    store,
+		hub:      hub,
+		llm:      llm,
+		pi:       pi,
+		frames:   frames,
+		maxSteps: agentMaxSteps(),
+	}
 }
 
 func (a *AgentLoop) Stop() {
@@ -73,6 +102,7 @@ func (a *AgentLoop) Start(goal string) error {
 	a.goal = goal
 	a.paused = false
 	a.cancel = cancel
+	a.maxSteps = agentMaxSteps()
 	a.mu.Unlock()
 
 	go a.run(ctx, goal)
@@ -139,48 +169,130 @@ func (a *AgentLoop) run(ctx context.Context, goal string) {
 		a.mu.Unlock()
 	}()
 
-	a.setPhase(phaseThinking)
-	a.store.SetAgentState(StateThinking)
 	a.hub.BroadcastLog("Goal: " + goal)
-	a.hub.BroadcastLog("Capturing frame, calling " + a.llm.model + "…")
+	var history []AgentDecision
+	goalComplete := false
 
-	if !a.waitUnpaused(ctx) {
-		return
-	}
-
-	frame := a.frames.LatestOrMock()
-	decision, rawJSON, err := a.llm.Decide(ctx, goal, frame)
-	if ctx.Err() != nil {
-		return
-	}
-	if err != nil {
-		a.hub.BroadcastLog("OpenAI error: " + err.Error())
-		if len(rawJSON) > 0 {
-			a.hub.BroadcastLog(string(rawJSON))
+	for step := 1; step <= a.maxSteps; step++ {
+		if ctx.Err() != nil {
+			return
 		}
-		a.mu.Lock()
-		a.goal = ""
-		a.mu.Unlock()
-		a.store.SetAgentState(StateIdle)
-		return
+		if !a.waitUnpaused(ctx) {
+			return
+		}
+
+		a.setPhase(phaseThinking)
+		a.store.SetAgentState(StateThinking)
+		a.hub.BroadcastLog("Step " + strconv.Itoa(step) + "/" + strconv.Itoa(a.maxSteps) + " — snapshot, " + a.llm.model + "…")
+
+		frame := a.captureFrame(ctx)
+		decision, rawJSON, err := a.llm.Decide(ctx, goal, frame, history)
+		if ctx.Err() != nil {
+			return
+		}
+		if err != nil {
+			a.hub.BroadcastLog("OpenAI error: " + err.Error())
+			if len(rawJSON) > 0 {
+				a.hub.BroadcastLog(string(rawJSON))
+			}
+			a.mu.Lock()
+			a.goal = ""
+			a.mu.Unlock()
+			a.store.SetAgentState(StateIdle)
+			return
+		}
+
+		if !a.waitUnpaused(ctx) {
+			return
+		}
+
+		a.setPhase(phaseActing)
+		a.store.SetAgentState(StateActing)
+		a.hub.BroadcastLog(string(rawJSON))
+		if decision != nil && decision.Thought != "" {
+			a.hub.BroadcastLog("Thought: " + decision.Thought)
+		}
+
+		if decision != nil {
+			history = append(history, *decision)
+		}
+
+		if decision != nil && (decision.Done || decision.Action == "done") {
+			a.hub.BroadcastLog("Agent marked goal complete")
+			goalComplete = true
+			break
+		}
+
+		sentHID := a.dispatch(ctx, decision)
+		if ctx.Err() != nil {
+			return
+		}
+
+		if decision != nil && decision.Action == "wait" {
+			_ = a.wait(ctx, 1500*time.Millisecond)
+			continue
+		}
+
+		if sentHID {
+			_ = a.wait(ctx, 1000*time.Millisecond)
+		}
 	}
 
-	if !a.waitUnpaused(ctx) {
-		return
-	}
-
-	a.setPhase(phaseActing)
-	a.store.SetAgentState(StateActing)
-	a.hub.BroadcastLog(string(rawJSON))
-	if decision != nil && decision.Thought != "" {
-		a.hub.BroadcastLog("Thought: " + decision.Thought)
+	if !goalComplete {
+		a.hub.BroadcastLog("Stopped — max steps (" + strconv.Itoa(a.maxSteps) + ") reached")
 	}
 
 	a.mu.Lock()
 	a.goal = ""
 	a.mu.Unlock()
 	a.store.SetAgentState(StateIdle)
-	a.hub.BroadcastLog("Idle — JSON only, no HID dispatch yet")
+	a.hub.BroadcastLog("Idle")
+}
+
+func (a *AgentLoop) captureFrame(ctx context.Context) []byte {
+	if a.pi != nil && a.pi.Enabled() {
+		snap, err := a.pi.Snapshot(ctx)
+		if err == nil && len(snap) > 0 {
+			a.frames.Put(snap)
+			a.store.SetPiConnected(true)
+			return snap
+		}
+		if err != nil {
+			a.hub.BroadcastLog("QNX snapshot failed: " + err.Error())
+			a.store.SetPiConnected(false)
+		}
+	}
+	return a.frames.LatestOrMock()
+}
+
+func (a *AgentLoop) dispatch(ctx context.Context, d *AgentDecision) bool {
+	if d == nil {
+		return false
+	}
+	if d.Action == "wait" || d.Action == "done" {
+		return false
+	}
+	if a.pi == nil || !a.pi.Enabled() {
+		a.hub.BroadcastLog("No QNX_BASE_URL — would run " + d.Action + " " + d.Value)
+		return false
+	}
+	if err := a.pi.SendDecision(ctx, d); err != nil {
+		a.hub.BroadcastLog("QNX /key error: " + err.Error())
+		return false
+	}
+	a.hub.BroadcastLog("Sent to kvmd: " + d.Action + " " + d.Value)
+	return true
+}
+
+func (a *AgentLoop) wait(ctx context.Context, d time.Duration) bool {
+	t := time.NewTimer(d)
+	defer t.Stop()
+	select {
+	case <-ctx.Done():
+		return false
+	case <-t.C:
+		return true
+	}
 }
 
 func (a *AgentLoop) setPhase(p runPhase) {

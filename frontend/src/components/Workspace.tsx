@@ -67,8 +67,7 @@ export function Workspace({ system }: WorkspaceProps) {
     void runAction(() => postControl("stop"));
   };
 
-  const manualInput =
-    live && mode === "manual" && videoFocused ? sendManualInput : undefined;
+  const manualInput = live && mode === "manual" ? sendManualInput : undefined;
 
   const displayMode = live ? mode : "ai";
   const displayState = live ? state : null;

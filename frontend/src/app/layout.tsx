@@ -19,7 +19,7 @@ const instrumentSerif = Instrument_Serif({
 });
 
 export const metadata: Metadata = {
-  title: "BTOS",
+  title: "orcactl",
   description: "Autonomous IP-KVM dashboard",
 };
 

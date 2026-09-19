@@ -13,7 +13,7 @@ export function LandingPage() {
               Behind the OS
             </p>
             <h1 className="font-display text-4xl tracking-tight md:text-5xl">
-              BTOS
+              orcactl
             </h1>
           </div>
           <div className="text-right font-mono text-[10px] uppercase tracking-widest">
@@ -36,7 +36,7 @@ export function LandingPage() {
           <div className="flex flex-col justify-between gap-6 md:col-span-4">
             <p className="text-sm leading-relaxed md:text-base">
               AI agents excel inside an operating system. Below the
-              OS (bootloader, BIOS, bare metal), they stop. BTOS bridges HDMI to an
+              OS (bootloader, BIOS, bare metal), they stop. orcactl bridges HDMI to an
               agent that can see and drive the machine remotely.
             </p>
             <div className="border border-ink p-4 font-mono text-[10px] uppercase tracking-widest">

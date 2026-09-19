@@ -49,7 +49,7 @@ export function Header({
           href="/"
           className="font-mono text-sm font-semibold uppercase tracking-widest hover:underline"
         >
-          BTOS
+          orcactl
         </Link>
         <span className="font-mono text-xs opacity-70">{systemName}</span>
         <div

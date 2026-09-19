@@ -49,10 +49,10 @@ func NewStore(onChange func()) *Store {
 	s := &Store{
 		mode:        ModeAI,
 		state:       StateIdle,
-		piConnected: true, // mock until PiLink exists
+		piConnected: false,
 		onChange:    onChange,
 	}
-	s.appendLog("BOS backend ready (mock stream)")
+	s.appendLog("BOS backend ready")
 	return s
 }
 

@@ -68,14 +68,11 @@ export function VideoPane({
 
   const onMouseDown = useCallback(
     (e: React.MouseEvent) => {
-      if (!manualActive || !onManualInput) return;
+      if (!manualActive) return;
+      paneRef.current?.focus();
       e.preventDefault();
-      const { x, y } = videoCoords(e.clientX, e.clientY);
-      const button =
-        e.button === 2 ? "right" : e.button === 1 ? "middle" : "left";
-      onManualInput({ action: "mouse_click", button, x, y });
     },
-    [manualActive, onManualInput, videoCoords],
+    [manualActive],
   );
 
   const onKeyDown = useCallback(
@@ -143,7 +140,7 @@ export function VideoPane({
         role={manualActive ? "application" : undefined}
         aria-label={
           manualActive
-            ? "Remote screen — click here to send keyboard and mouse input"
+            ? "Remote screen — click here, then type to send keys to the target"
             : "Remote screen"
         }
       >
