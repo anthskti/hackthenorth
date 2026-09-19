@@ -14,6 +14,7 @@ func main() {
 		}
 	})
 	hub = NewHub(store)
+	agent := NewAgentLoop(store, hub)
 
 	router := gin.Default()
 
@@ -21,9 +22,7 @@ func main() {
 		c.JSON(http.StatusOK, gin.H{"message": "pong"})
 	})
 
-	router.GET("/api/status", func(c *gin.Context) {
-		c.JSON(http.StatusOK, store.Snapshot())
-	})
+	registerAPI(router, store, hub, agent)
 
 	router.GET("/video/stream", handleVideoStream)
 	router.GET("/ws/dashboard", hub.HandleDashboardWS)

@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { dashboardWebSocketUrl } from "@/lib/backend";
 import { fetchStatus } from "@/lib/api";
-import type { AgentState, LogEntry, Mode } from "@/lib/types";
+import type { AgentState, LogEntry, ManualInputPayload, Mode } from "@/lib/types";
 
 type StatusMessage = {
   type: "status";
@@ -26,6 +26,19 @@ function applyStatus(
   setState(msg.mode === "ai" ? (msg.state ?? "idle") : null);
 }
 
+function applySnapshot(
+  snap: Awaited<ReturnType<typeof fetchStatus>>,
+  setMode: (m: Mode) => void,
+  setState: (s: AgentState | null) => void,
+  setLogs: (l: LogEntry[]) => void,
+  setPiConnected: (p: boolean) => void,
+) {
+  setMode(snap.mode);
+  setState(snap.mode === "ai" ? (snap.state ?? "idle") : null);
+  setLogs(snap.logs);
+  setPiConnected(snap.pi_connected ?? false);
+}
+
 export function useDashboardLive() {
   const [mode, setMode] = useState<Mode>("ai");
   const [state, setState] = useState<AgentState | null>("idle");
@@ -42,13 +55,15 @@ export function useDashboardLive() {
     try {
       const snap = await fetchStatus();
       setBackendReachable(true);
-      setMode(snap.mode);
-      setState(snap.mode === "ai" ? (snap.state ?? "idle") : null);
-      setLogs(snap.logs);
-      setPiConnected(snap.pi_connected ?? false);
+      applySnapshot(snap, setMode, setState, setLogs, setPiConnected);
     } catch {
       setBackendReachable(false);
     }
+  }, []);
+
+  const applySnapshotFromServer = useCallback((snap: Awaited<ReturnType<typeof fetchStatus>>) => {
+    setBackendReachable(true);
+    applySnapshot(snap, setMode, setState, setLogs, setPiConnected);
   }, []);
 
   useEffect(() => {
@@ -74,7 +89,12 @@ export function useDashboardLive() {
           if (msg.type === "status") {
             applyStatus(msg, setMode, setState);
           } else if (msg.type === "log") {
-            setLogs((prev) => [...prev, { text: msg.text, ts: msg.ts }]);
+            setLogs((prev) => {
+              if (prev.some((e) => e.ts === msg.ts && e.text === msg.text)) {
+                return prev;
+              }
+              return [...prev, { text: msg.text, ts: msg.ts }];
+            });
           }
         } catch {
           // ignore malformed frames
@@ -107,6 +127,14 @@ export function useDashboardLive() {
     };
   }, [hydrate]);
 
+  const sendManualInput = useCallback((payload: ManualInputPayload) => {
+    const ws = wsRef.current;
+    if (!ws || ws.readyState !== WebSocket.OPEN) {
+      return;
+    }
+    ws.send(JSON.stringify({ type: "manual_input", ...payload }));
+  }, []);
+
   return {
     mode,
     state,
@@ -114,8 +142,7 @@ export function useDashboardLive() {
     wsConnected,
     piConnected,
     backendReachable,
-    setMode,
-    setState,
-    setLogs,
+    applySnapshotFromServer,
+    sendManualInput,
   };
 }

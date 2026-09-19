@@ -1,16 +1,13 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
-import type { AgentState, LogEntry, Mode } from "@/lib/types";
+import { useState } from "react";
+import { fetchStatus, postControl, postMode, postPrompt } from "@/lib/api";
 import { useDashboardLive } from "@/lib/useDashboardLive";
+import type { Mode } from "@/lib/types";
 import { ActionLog } from "./ActionLog";
 import { ControlRail } from "./ControlRail";
 import { Header } from "./Header";
 import { VideoPane } from "./VideoPane";
-
-function appendLog(logs: LogEntry[], text: string): LogEntry[] {
-  return [...logs, { text, ts: Date.now() }];
-}
 
 export function Dashboard() {
   const {
@@ -20,81 +17,54 @@ export function Dashboard() {
     wsConnected,
     piConnected,
     backendReachable,
-    setMode,
-    setState,
-    setLogs,
+    applySnapshotFromServer,
+    sendManualInput,
   } = useDashboardLive();
 
   const [goal, setGoal] = useState("");
   const [videoFocused, setVideoFocused] = useState(false);
-  const [lastAck, setLastAck] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
 
-  const simTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const showStream = backendReachable && piConnected;
 
-  const clearSim = useCallback(() => {
-    if (simTimerRef.current) {
-      clearTimeout(simTimerRef.current);
-      simTimerRef.current = null;
+  const runAction = async (fn: () => Promise<unknown>) => {
+    setActionError(null);
+    try {
+      const snap = await fn();
+      applySnapshotFromServer(snap as Awaited<ReturnType<typeof fetchStatus>>);
+    } catch (e) {
+      setActionError(e instanceof Error ? e.message : "Request failed");
     }
-  }, []);
-
-  useEffect(() => () => clearSim(), [clearSim]);
+  };
 
   const handleModeChange = (next: Mode) => {
-    setMode(next);
-    clearSim();
-    if (next === "manual") {
-      setState(null);
-      setLogs((prev) =>
-        appendLog(prev, "Switched to manual (local — wire-controls next)"),
-      );
-    } else {
-      setState("idle");
-      setLogs((prev) => appendLog(prev, "Switched to AI (local — wire-controls next)"));
-    }
+    void runAction(() => postMode(next));
   };
 
   const handleRun = () => {
     const trimmed = goal.trim();
     if (mode !== "ai" || state !== "idle" || !trimmed) return;
-    clearSim();
-    setState("thinking");
-    setLogs((prev) => appendLog(prev, `Goal: ${trimmed}`));
-    setLogs((prev) => appendLog(prev, "Capturing frame, calling vision model… (local mock)"));
-    simTimerRef.current = setTimeout(() => {
-      setState("acting");
-      setLogs((prev) => appendLog(prev, "LLM: press F2 to enter setup (local mock)"));
-      setLastAck("key F2 ✓");
-      simTimerRef.current = setTimeout(() => {
-        setState("idle");
-        setLogs((prev) => appendLog(prev, "Action complete — idle (local mock)"));
-        simTimerRef.current = null;
-      }, 2000);
-    }, 1500);
+    void runAction(async () => {
+      const snap = await postPrompt(trimmed);
+      setGoal("");
+      return snap;
+    });
   };
 
   const handlePause = () => {
-    if (state !== "thinking" && state !== "acting") return;
-    clearSim();
-    setState("paused");
-    setLogs((prev) => appendLog(prev, "Paused (local mock)"));
+    void runAction(() => postControl("pause"));
   };
 
   const handleResume = () => {
-    if (state !== "paused") return;
-    setState("idle");
-    setLogs((prev) => appendLog(prev, "Resumed (local mock)"));
+    void runAction(() => postControl("resume"));
   };
 
   const handleStop = () => {
-    if (state !== "thinking" && state !== "acting" && state !== "paused") return;
-    clearSim();
-    setState("idle");
-    setLogs((prev) => appendLog(prev, "Stopped (local mock)"));
-    setLastAck(null);
+    void runAction(() => postControl("stop"));
   };
 
-  const showStream = backendReachable && piConnected;
+  const manualInput =
+    mode === "manual" && videoFocused ? sendManualInput : undefined;
 
   return (
     <div className="flex min-h-0 flex-1 flex-col bg-white dark:bg-zinc-950">
@@ -108,7 +78,13 @@ export function Dashboard() {
 
       {!backendReachable && (
         <p className="bg-amber-50 px-4 py-2 text-center text-sm text-amber-900 dark:bg-amber-950 dark:text-amber-100">
-          Backend unreachable — start Go on :8080 and refresh. Showing last local state.
+          Backend unreachable. Start Go on :8080 and refresh.
+        </p>
+      )}
+
+      {actionError && (
+        <p className="bg-red-50 px-4 py-2 text-center text-sm text-red-800 dark:bg-red-950 dark:text-red-200">
+          {actionError}
         </p>
       )}
 
@@ -121,6 +97,7 @@ export function Dashboard() {
             onFocus={() => setVideoFocused(true)}
             onBlur={() => setVideoFocused(false)}
             useStream={showStream}
+            onManualInput={manualInput}
           />
         </div>
 
@@ -138,14 +115,6 @@ export function Dashboard() {
           <ActionLog logs={logs} />
         </aside>
       </div>
-
-      {lastAck && mode === "ai" && (
-        <footer className="shrink-0 border-t border-zinc-200 px-4 py-2 text-xs text-zinc-500 dark:border-zinc-800">
-          Last ack:{" "}
-          <span className="font-mono text-zinc-700 dark:text-zinc-300">{lastAck}</span>
-          <span className="ml-2 text-zinc-400">(local mock)</span>
-        </footer>
-      )}
     </div>
   );
 }

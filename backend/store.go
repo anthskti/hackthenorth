@@ -65,12 +65,15 @@ func (s *Store) appendLog(text string) {
 }
 
 func (s *Store) AppendLog(text string) {
+	s.AppendLogEntry(text)
+}
+
+func (s *Store) AppendLogEntry(text string) LogEntry {
 	s.mu.Lock()
 	s.appendLog(text)
+	entry := s.logs[len(s.logs)-1]
 	s.mu.Unlock()
-	if s.onChange != nil {
-		s.onChange()
-	}
+	return entry
 }
 
 func (s *Store) Snapshot() StatusResponse {
@@ -92,6 +95,33 @@ func (s *Store) Mode() Mode {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.mode
+}
+
+func (s *Store) AgentState() AgentState {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.state
+}
+
+func (s *Store) SetMode(m Mode) {
+	s.mu.Lock()
+	s.mode = m
+	if m == ModeManual {
+		s.state = StateIdle
+	}
+	s.mu.Unlock()
+	if s.onChange != nil {
+		s.onChange()
+	}
+}
+
+func (s *Store) SetAgentState(st AgentState) {
+	s.mu.Lock()
+	s.state = st
+	s.mu.Unlock()
+	if s.onChange != nil {
+		s.onChange()
+	}
 }
 
 func (s *Store) StatusMessage() []byte {

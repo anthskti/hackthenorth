@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"sync"
 
@@ -38,8 +39,13 @@ func (h *Hub) Broadcast(message []byte) {
 }
 
 func (h *Hub) BroadcastLog(text string) {
-	h.store.AppendLog(text)
-	h.Broadcast(h.store.LogMessage(text))
+	entry := h.store.AppendLogEntry(text)
+	payload, _ := json.Marshal(map[string]interface{}{
+		"type": "log",
+		"text": entry.Text,
+		"ts":   entry.Ts,
+	})
+	h.Broadcast(payload)
 }
 
 func (h *Hub) BroadcastStatus() {
@@ -75,14 +81,22 @@ func (h *Hub) HandleDashboardWS(c *gin.Context) {
 }
 
 func (h *Hub) handleClientMessage(data []byte) {
-	var envelope struct {
-		Type string `json:"type"`
+	var msg struct {
+		Type   string `json:"type"`
+		Action string `json:"action"`
+		Value  string `json:"value"`
+		X      int    `json:"x"`
+		Y      int    `json:"y"`
+		Button string `json:"button"`
 	}
-	if err := json.Unmarshal(data, &envelope); err != nil || envelope.Type != "manual_input" {
+	if err := json.Unmarshal(data, &msg); err != nil || msg.Type != "manual_input" {
 		return
 	}
 	if h.store.Mode() != ModeManual {
 		return
 	}
-	// Accepted in manual mode; Pi forward comes in a later step.
+	// Pi / HID forward later; accept and acknowledge clicks only in the log.
+	if msg.Action == "mouse_click" {
+		h.BroadcastLog(fmt.Sprintf("Manual click at (%d, %d)", msg.X, msg.Y))
+	}
 }
