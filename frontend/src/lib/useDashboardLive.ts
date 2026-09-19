@@ -104,12 +104,14 @@ export function useDashboardLive(options: UseDashboardLiveOptions = {}) {
       wsRef.current = ws;
 
       ws.onopen = () => {
+        if (wsRef.current !== ws) return;
         setWsConnected(true);
         backoffRef.current = 1000;
         void hydrate();
       };
 
       ws.onmessage = (event) => {
+        if (wsRef.current !== ws) return;
         try {
           const msg = JSON.parse(event.data as string) as StatusMessage | LogMessage;
           if (msg.type === "status") {
@@ -128,6 +130,11 @@ export function useDashboardLive(options: UseDashboardLiveOptions = {}) {
       };
 
       ws.onclose = () => {
+        // Only react if this is still the current socket. React's dev-mode
+        // double-mount closes the first socket *after* the second is already
+        // open, and clearing the ref unconditionally would drop the live one,
+        // silently breaking every send from then on.
+        if (wsRef.current !== ws) return;
         setWsConnected(false);
         wsRef.current = null;
         if (cancelled) return;

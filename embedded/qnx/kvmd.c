@@ -5,7 +5,7 @@
  *                          open directly in a browser, VLC, ffplay, OpenCV...
  *   GET  /snapshot.jpg  -> one JPEG frame
  *   GET  /ui            -> small control page: video + keystroke text boxes
- *   POST /key           -> keyboard commands, one per line, forwarded to the
+ *   POST /key           -> keyboard and mouse commands, one per line, forwarded
  *                          Leonardo on the serial port:
  *                            t<text>  p<hex>  r<hex>  k<hex>  a
  *                          (CORS enabled, so a page hosted anywhere can call it)
@@ -292,12 +292,25 @@ static int valid_cmd(const char *s)
         for (const char *p = s + 1; *p; p++)
             if (!isxdigit((unsigned char)*p)) return 0;
         return 1;
+    case 'z':                                   /* release all mouse buttons */
+        return n == 1;
     case 't':
         if (n < 2 || n > 61) return 0;          /* keep lines short for the Leonardo */
         for (const char *p = s + 1; *p; p++)
             if ((unsigned char)*p < 0x20 || (unsigned char)*p > 0x7e) return 0;
         return 1;
-    case 'm': {                                 /* m<dx>,<dy>[,<wheel>] */
+    case 'm': {
+        /* Two spellings, told apart by the comma:
+         *   m<XXXX><YYYY>          absolute, 8 hex digits, each axis 0-7FFF
+         *   m<dx>,<dy>[,<wheel>]   relative, signed decimal
+         * The dashboard sends absolute, because a click has to land where the
+         * operator aimed and neither end knows where the target's cursor is.
+         * Relative stays for callers that want deltas. */
+        if (n == 9 && !strchr(s, ',')) {
+            for (const char *q = s + 1; *q; q++)
+                if (!isxdigit((unsigned char)*q)) return 0;
+            return 1;
+        }
         const char *p;
         if (!is_int(s + 1, &p) || *p != ',') return 0;
         if (!is_int(p + 1, &p)) return 0;
@@ -374,6 +387,7 @@ static void log_cmd(const char *ip, const char *cmd, const char *result)
     case 'r': snprintf(what, sizeof what, "release  %s", key_name(k, kb, sizeof kb)); break;
     case 'k': snprintf(what, sizeof what, "tap      %s", key_name(k, kb, sizeof kb)); break;
     case 'a': snprintf(what, sizeof what, "release  all keys"); break;
+    case 'z': snprintf(what, sizeof what, "release  all mouse buttons"); break;
     case 't': snprintf(what, sizeof what, "type     \"%.60s\"", cmd + 1); break;
     case 'm': snprintf(what, sizeof what, "mouse    move %s", cmd + 1); break;
     case 'w': snprintf(what, sizeof what, "mouse    scroll %s", cmd + 1); break;
@@ -735,7 +749,7 @@ int main(int argc, char **argv)
     pthread_mutex_lock(&g_fmu);
     pthread_cond_broadcast(&g_fcv);             /* wake viewers so they exit */
     pthread_mutex_unlock(&g_fmu);
-    if (g_ser >= 0) { serial_send("a"); close(g_ser); }   /* release all keys */
+    if (g_ser >= 0) { serial_send("a"); serial_send("z"); close(g_ser); }  /* release keys + mouse */
     camera_stop_viewfinder(cam);
     camera_close(cam);
     tj3Destroy(g_tj);
