@@ -1,0 +1,45 @@
+# Binaries
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+
+# Compiled Go binaries (common local names)
+/backend
+/server
+/main
+/app
+
+# Go workspace / build cache
+/bin/
+/dist/
+/tmp/
+/vendor/
+
+# Test and coverage
+*.cover
+coverage.out
+coverage.html
+profile.out
+
+# Air / live reload
+tmp/
+
+# Environment and secrets
+.env
+.env.*
+!.env.example
+
+# IDE and editor
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
