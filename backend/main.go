@@ -7,6 +7,8 @@ import (
 )
 
 func main() {
+	loadDotEnv(".env")
+
 	var hub *Hub
 	store := NewStore(func() {
 		if hub != nil {
@@ -14,7 +16,15 @@ func main() {
 		}
 	})
 	hub = NewHub(store)
-	agent := NewAgentLoop(store, hub)
+	frames := NewFrameBuffer()
+	llm := NewLLMClient()
+	agent := NewAgentLoop(store, hub, llm, frames)
+
+	if err := llm.Ready(); err != nil {
+		store.AppendLog("OpenAI disabled: set OPENAI_API_KEY in backend/.env")
+	} else {
+		store.AppendLog("OpenAI ready (" + llm.model + ")")
+	}
 
 	router := gin.Default()
 
@@ -24,7 +34,7 @@ func main() {
 
 	registerAPI(router, store, hub, agent)
 
-	router.GET("/video/stream", handleVideoStream)
+	router.GET("/video/stream", handleVideoStream(frames))
 	router.GET("/ws/dashboard", hub.HandleDashboardWS)
 
 	router.Run()

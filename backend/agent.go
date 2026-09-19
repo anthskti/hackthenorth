@@ -27,14 +27,16 @@ type AgentLoop struct {
 	mu     sync.Mutex
 	store  *Store
 	hub    *Hub
+	llm    *LLMClient
+	frames *FrameBuffer
 	goal   string
 	paused bool
 	phase  runPhase
 	cancel context.CancelFunc
 }
 
-func NewAgentLoop(store *Store, hub *Hub) *AgentLoop {
-	return &AgentLoop{store: store, hub: hub}
+func NewAgentLoop(store *Store, hub *Hub, llm *LLMClient, frames *FrameBuffer) *AgentLoop {
+	return &AgentLoop{store: store, hub: hub, llm: llm, frames: frames}
 }
 
 func (a *AgentLoop) Stop() {
@@ -59,6 +61,9 @@ func (a *AgentLoop) Start(goal string) error {
 	}
 	if a.store.AgentState() != StateIdle {
 		return errNotIdle
+	}
+	if err := a.llm.Ready(); err != nil {
+		return err
 	}
 
 	a.Stop()
@@ -137,49 +142,51 @@ func (a *AgentLoop) run(ctx context.Context, goal string) {
 	a.setPhase(phaseThinking)
 	a.store.SetAgentState(StateThinking)
 	a.hub.BroadcastLog("Goal: " + goal)
-	a.hub.BroadcastLog("Capturing frame, calling vision model…")
+	a.hub.BroadcastLog("Capturing frame, calling " + a.llm.model + "…")
 
-	if !a.wait(ctx, 1500*time.Millisecond) {
+	if !a.waitUnpaused(ctx) {
 		return
 	}
+
+	frame := a.frames.LatestOrMock()
+	decision, rawJSON, err := a.llm.Decide(ctx, goal, frame)
+	if ctx.Err() != nil {
+		return
+	}
+	if err != nil {
+		a.hub.BroadcastLog("OpenAI error: " + err.Error())
+		if len(rawJSON) > 0 {
+			a.hub.BroadcastLog(string(rawJSON))
+		}
+		a.mu.Lock()
+		a.goal = ""
+		a.mu.Unlock()
+		a.store.SetAgentState(StateIdle)
+		return
+	}
+
 	if !a.waitUnpaused(ctx) {
 		return
 	}
 
 	a.setPhase(phaseActing)
 	a.store.SetAgentState(StateActing)
-	a.hub.BroadcastLog("LLM: press F2 to enter setup (mock)")
-	// PiLink would dispatch: command key F2
-
-	if !a.wait(ctx, 2000*time.Millisecond) {
-		return
-	}
-	if !a.waitUnpaused(ctx) {
-		return
+	a.hub.BroadcastLog(string(rawJSON))
+	if decision != nil && decision.Thought != "" {
+		a.hub.BroadcastLog("Thought: " + decision.Thought)
 	}
 
 	a.mu.Lock()
 	a.goal = ""
 	a.mu.Unlock()
 	a.store.SetAgentState(StateIdle)
-	a.hub.BroadcastLog("Action complete — idle")
+	a.hub.BroadcastLog("Idle — JSON only, no HID dispatch yet")
 }
 
 func (a *AgentLoop) setPhase(p runPhase) {
 	a.mu.Lock()
 	a.phase = p
 	a.mu.Unlock()
-}
-
-func (a *AgentLoop) wait(ctx context.Context, d time.Duration) bool {
-	t := time.NewTimer(d)
-	defer t.Stop()
-	select {
-	case <-ctx.Done():
-		return false
-	case <-t.C:
-		return true
-	}
 }
 
 func (a *AgentLoop) waitUnpaused(ctx context.Context) bool {
