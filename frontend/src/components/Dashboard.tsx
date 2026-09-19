@@ -2,27 +2,30 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { AgentState, LogEntry, Mode } from "@/lib/types";
+import { useDashboardLive } from "@/lib/useDashboardLive";
 import { ActionLog } from "./ActionLog";
 import { ControlRail } from "./ControlRail";
 import { Header } from "./Header";
 import { VideoPane } from "./VideoPane";
-
-const FAKE_INITIAL_LOGS: LogEntry[] = [
-  { text: "Dashboard connected (fake state)", ts: Date.now() - 60_000 },
-  { text: "Mode: AI / waiting for a goal", ts: Date.now() - 30_000 },
-];
 
 function appendLog(logs: LogEntry[], text: string): LogEntry[] {
   return [...logs, { text, ts: Date.now() }];
 }
 
 export function Dashboard() {
-  const [mode, setMode] = useState<Mode>("ai");
-  const [state, setState] = useState<AgentState | null>("idle");
-  const [logs, setLogs] = useState<LogEntry[]>(FAKE_INITIAL_LOGS);
+  const {
+    mode,
+    state,
+    logs,
+    wsConnected,
+    piConnected,
+    backendReachable,
+    setMode,
+    setState,
+    setLogs,
+  } = useDashboardLive();
+
   const [goal, setGoal] = useState("");
-  const [wsConnected] = useState(true);
-  const [piConnected] = useState(true);
   const [videoFocused, setVideoFocused] = useState(false);
   const [lastAck, setLastAck] = useState<string | null>(null);
 
@@ -43,11 +46,11 @@ export function Dashboard() {
     if (next === "manual") {
       setState(null);
       setLogs((prev) =>
-        appendLog(prev, "Switched to manual — agent stopped (fake)"),
+        appendLog(prev, "Switched to manual (local — wire-controls next)"),
       );
     } else {
       setState("idle");
-      setLogs((prev) => appendLog(prev, "Switched to AI mode (fake)"));
+      setLogs((prev) => appendLog(prev, "Switched to AI (local — wire-controls next)"));
     }
   };
 
@@ -57,14 +60,14 @@ export function Dashboard() {
     clearSim();
     setState("thinking");
     setLogs((prev) => appendLog(prev, `Goal: ${trimmed}`));
-    setLogs((prev) => appendLog(prev, "Capturing frame, calling vision model…"));
+    setLogs((prev) => appendLog(prev, "Capturing frame, calling vision model… (local mock)"));
     simTimerRef.current = setTimeout(() => {
       setState("acting");
-      setLogs((prev) => appendLog(prev, "LLM: press F2 to enter setup"));
+      setLogs((prev) => appendLog(prev, "LLM: press F2 to enter setup (local mock)"));
       setLastAck("key F2 ✓");
       simTimerRef.current = setTimeout(() => {
         setState("idle");
-        setLogs((prev) => appendLog(prev, "Action complete — idle"));
+        setLogs((prev) => appendLog(prev, "Action complete — idle (local mock)"));
         simTimerRef.current = null;
       }, 2000);
     }, 1500);
@@ -74,22 +77,24 @@ export function Dashboard() {
     if (state !== "thinking" && state !== "acting") return;
     clearSim();
     setState("paused");
-    setLogs((prev) => appendLog(prev, "Paused after current action (fake)"));
+    setLogs((prev) => appendLog(prev, "Paused (local mock)"));
   };
 
   const handleResume = () => {
     if (state !== "paused") return;
     setState("idle");
-    setLogs((prev) => appendLog(prev, "Resumed — awaiting next tick (fake)"));
+    setLogs((prev) => appendLog(prev, "Resumed (local mock)"));
   };
 
   const handleStop = () => {
     if (state !== "thinking" && state !== "acting" && state !== "paused") return;
     clearSim();
     setState("idle");
-    setLogs((prev) => appendLog(prev, "Stopped — goal cleared (fake)"));
+    setLogs((prev) => appendLog(prev, "Stopped (local mock)"));
     setLastAck(null);
   };
+
+  const showStream = backendReachable && piConnected;
 
   return (
     <div className="flex min-h-0 flex-1 flex-col bg-white dark:bg-zinc-950">
@@ -101,6 +106,12 @@ export function Dashboard() {
         onModeChange={handleModeChange}
       />
 
+      {!backendReachable && (
+        <p className="bg-amber-50 px-4 py-2 text-center text-sm text-amber-900 dark:bg-amber-950 dark:text-amber-100">
+          Backend unreachable — start Go on :8080 and refresh. Showing last local state.
+        </p>
+      )}
+
       <div className="flex min-h-0 flex-1 flex-col gap-4 p-4 lg:flex-row">
         <div className="flex min-h-0 min-w-0 flex-1 flex-col">
           <VideoPane
@@ -109,7 +120,7 @@ export function Dashboard() {
             focused={videoFocused}
             onFocus={() => setVideoFocused(true)}
             onBlur={() => setVideoFocused(false)}
-            useStream={false}
+            useStream={showStream}
           />
         </div>
 
@@ -132,7 +143,7 @@ export function Dashboard() {
         <footer className="shrink-0 border-t border-zinc-200 px-4 py-2 text-xs text-zinc-500 dark:border-zinc-800">
           Last ack:{" "}
           <span className="font-mono text-zinc-700 dark:text-zinc-300">{lastAck}</span>
-          <span className="ml-2 text-zinc-400">(fake)</span>
+          <span className="ml-2 text-zinc-400">(local mock)</span>
         </footer>
       )}
     </div>

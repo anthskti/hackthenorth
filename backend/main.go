@@ -7,16 +7,26 @@ import (
 )
 
 func main() {
-	// Initialize a default Gin router with Logger and Recovery middleware
+	var hub *Hub
+	store := NewStore(func() {
+		if hub != nil {
+			hub.BroadcastStatus()
+		}
+	})
+	hub = NewHub(store)
+
 	router := gin.Default()
 
-	// Define a simple GET endpoint
 	router.GET("/ping", func(c *gin.Context) {
-		c.JSON(http.StatusOK, gin.H{
-			"message": "pong",
-		})
+		c.JSON(http.StatusOK, gin.H{"message": "pong"})
 	})
 
-	// Run the server (listens on 0.0.0.0:8080 by default)
-	router.Run() 
+	router.GET("/api/status", func(c *gin.Context) {
+		c.JSON(http.StatusOK, store.Snapshot())
+	})
+
+	router.GET("/video/stream", handleVideoStream)
+	router.GET("/ws/dashboard", hub.HandleDashboardWS)
+
+	router.Run()
 }

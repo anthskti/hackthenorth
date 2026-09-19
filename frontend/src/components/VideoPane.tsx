@@ -1,5 +1,6 @@
 "use client";
 
+import { VIDEO_STREAM_PATH } from "@/lib/backend";
 import type { Mode } from "@/lib/types";
 
 type VideoPaneProps = {
@@ -48,7 +49,7 @@ export function VideoPane({
         {useStream ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img
-            src="/video/stream"
+            src={VIDEO_STREAM_PATH}
             alt="Target machine live feed"
             className="absolute inset-0 h-full w-full object-contain"
           />
