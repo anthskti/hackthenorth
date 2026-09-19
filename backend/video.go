@@ -11,46 +11,49 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-func handleVideoStream(c *gin.Context) {
-	c.Header("Cache-Control", "no-cache, no-store, must-revalidate")
-	c.Header("Connection", "close")
-	c.Header("Content-Type", "multipart/x-mixed-replace; boundary=frame")
-	c.Header("Pragma", "no-cache")
+func handleVideoStream(frames *FrameBuffer) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		c.Header("Cache-Control", "no-cache, no-store, must-revalidate")
+		c.Header("Connection", "close")
+		c.Header("Content-Type", "multipart/x-mixed-replace; boundary=frame")
+		c.Header("Pragma", "no-cache")
 
-	boundary := "frame"
-	flusher, ok := c.Writer.(interface{ Flush() })
-	if !ok {
-		c.Status(500)
-		return
-	}
-
-	for {
-		if c.Request.Context().Err() != nil {
+		boundary := "frame"
+		flusher, ok := c.Writer.(interface{ Flush() })
+		if !ok {
+			c.Status(500)
 			return
 		}
 
-		frame, err := mockJPEGFrame()
-		if err != nil {
-			return
-		}
+		for {
+			if c.Request.Context().Err() != nil {
+				return
+			}
 
-		part := fmt.Sprintf(
-			"--%s\r\nContent-Type: image/jpeg\r\nContent-Length: %d\r\n\r\n",
-			boundary,
-			len(frame),
-		)
-		if _, err := c.Writer.WriteString(part); err != nil {
-			return
-		}
-		if _, err := c.Writer.Write(frame); err != nil {
-			return
-		}
-		if _, err := c.Writer.WriteString("\r\n"); err != nil {
-			return
-		}
-		flusher.Flush()
+			frame, err := mockJPEGFrame()
+			if err != nil {
+				return
+			}
+			frames.Put(frame)
 
-		time.Sleep(200 * time.Millisecond)
+			part := fmt.Sprintf(
+				"--%s\r\nContent-Type: image/jpeg\r\nContent-Length: %d\r\n\r\n",
+				boundary,
+				len(frame),
+			)
+			if _, err := c.Writer.WriteString(part); err != nil {
+				return
+			}
+			if _, err := c.Writer.Write(frame); err != nil {
+				return
+			}
+			if _, err := c.Writer.WriteString("\r\n"); err != nil {
+				return
+			}
+			flusher.Flush()
+
+			time.Sleep(200 * time.Millisecond)
+		}
 	}
 }
 

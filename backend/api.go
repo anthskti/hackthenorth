@@ -91,7 +91,7 @@ func writeAgentError(c *gin.Context, err error) {
 		c.JSON(http.StatusConflict, gin.H{"error": err.Error()})
 	case errors.Is(err, errNotIdle), errors.Is(err, errNotPausable), errors.Is(err, errNotPaused):
 		c.JSON(http.StatusConflict, gin.H{"error": err.Error()})
-	case errors.Is(err, errEmptyGoal):
+	case errors.Is(err, errEmptyGoal), errors.Is(err, errNoAPIKey):
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 	default:
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "agent error"})
