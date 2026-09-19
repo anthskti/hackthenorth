@@ -27,6 +27,8 @@ export function Workspace({ system }: WorkspaceProps) {
     backendReachable,
     applySnapshotFromServer,
     sendManualInput,
+    streamWidth,
+    streamHeight,
   } = useDashboardLive({ enabled: live });
 
   const [videoFocused, setVideoFocused] = useState(false);
@@ -122,6 +124,8 @@ export function Workspace({ system }: WorkspaceProps) {
               useStream={showStream}
               noUplink={!live}
               onManualInput={manualInput}
+              streamWidth={streamWidth}
+              streamHeight={streamHeight}
             />
           </div>
           <ActionLog logs={displayLogs} />

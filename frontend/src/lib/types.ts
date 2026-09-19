@@ -24,6 +24,7 @@ export type ManualInputPayload =
       button: "left" | "right" | "middle";
       x?: number;
       y?: number;
-    };
+    }
+  | { action: "mouse_wheel"; delta: number };
 
 export type ManualInputMessage = ManualInputPayload & { type: "manual_input" };

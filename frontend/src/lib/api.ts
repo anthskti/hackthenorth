@@ -6,6 +6,8 @@ export type StatusResponse = {
   state?: AgentState;
   logs: LogEntry[];
   pi_connected?: boolean;
+  stream_width?: number;
+  stream_height?: number;
 };
 
 async function postJSON<T>(path: string, body: unknown): Promise<T> {

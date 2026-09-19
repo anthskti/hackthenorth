@@ -30,27 +30,33 @@ const (
 )
 
 type StatusResponse struct {
-	Mode         Mode        `json:"mode"`
-	State        *AgentState `json:"state,omitempty"`
-	Logs         []LogEntry  `json:"logs"`
-	PiConnected  bool        `json:"pi_connected"`
+	Mode          Mode        `json:"mode"`
+	State         *AgentState `json:"state,omitempty"`
+	Logs          []LogEntry  `json:"logs"`
+	PiConnected   bool        `json:"pi_connected"`
+	StreamWidth   int         `json:"stream_width"`
+	StreamHeight  int         `json:"stream_height"`
 }
 
 type Store struct {
-	mu          sync.RWMutex
-	mode        Mode
-	state       AgentState
-	logs        []LogEntry
-	piConnected bool
-	onChange    func()
+	mu           sync.RWMutex
+	mode         Mode
+	state        AgentState
+	logs         []LogEntry
+	piConnected  bool
+	streamWidth  int
+	streamHeight int
+	onChange     func()
 }
 
 func NewStore(onChange func()) *Store {
 	s := &Store{
-		mode:        ModeAI,
-		state:       StateIdle,
-		piConnected: false,
-		onChange:    onChange,
+		mode:         ModeAI,
+		state:        StateIdle,
+		piConnected:  false,
+		streamWidth:  854,
+		streamHeight: 480,
+		onChange:     onChange,
 	}
 	s.appendLog("BOS backend ready")
 	return s
@@ -80,9 +86,11 @@ func (s *Store) Snapshot() StatusResponse {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	resp := StatusResponse{
-		Mode:        s.mode,
-		Logs:        append([]LogEntry(nil), s.logs...),
-		PiConnected: s.piConnected,
+		Mode:         s.mode,
+		Logs:         append([]LogEntry(nil), s.logs...),
+		PiConnected:  s.piConnected,
+		StreamWidth:  s.streamWidth,
+		StreamHeight: s.streamHeight,
 	}
 	if s.mode == ModeAI {
 		st := s.state
@@ -144,6 +152,16 @@ func (s *Store) LogMessage(text string) []byte {
 		"ts":   time.Now().UnixMilli(),
 	})
 	return b
+}
+
+func (s *Store) SetStreamSize(width, height int) {
+	if width <= 0 || height <= 0 {
+		return
+	}
+	s.mu.Lock()
+	s.streamWidth = width
+	s.streamHeight = height
+	s.mu.Unlock()
 }
 
 func (s *Store) SetPiConnected(connected bool) {

@@ -18,6 +18,7 @@ func main() {
 		}
 	})
 	pi := NewPiClient()
+	store.SetStreamSize(pi.streamWidth, pi.streamHeight)
 	hub = NewHub(store, pi)
 	frames := NewFrameBuffer()
 	llm := NewLLMClient()
