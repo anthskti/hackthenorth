@@ -41,7 +41,8 @@
 #endif
 
 /* ---------- settings ---------- */
-static unsigned    g_w = 720, g_h = 480;
+static unsigned    g_w = 720, g_h = 480;   /* capture size from the camera        */
+static unsigned    g_ow = 0;               /* output width; 0 = auto 16:9 from g_h */
 static int         g_port = 8080, g_quality = 80;
 static const char *g_serial_path = "/dev/ser1";
 
@@ -57,8 +58,38 @@ static int             g_viewers = 0;      /* encode only when > 0 */
 
 /* ---------- JPEG encoder state (used only by the camera thread) ---------- */
 static tjhandle        g_tj;
-static unsigned char  *g_planes[3];
+static unsigned char  *g_planes[3];        /* capture-size planar 4:2:2         */
 static int             g_strides[3];
+static unsigned char  *g_oplanes[3];       /* output-size planes (after scaling) */
+static int             g_ostrides[3];
+static uint32_t       *g_ytab, *g_ctab;    /* 16.16 source positions per column  */
+
+/* Build a table mapping each output column to a 16.16 source position */
+static uint32_t *make_scale_table(unsigned src_w, unsigned dst_w)
+{
+    uint32_t *t = malloc(sizeof *t * dst_w);
+    if (!t) return NULL;
+    for (unsigned x = 0; x < dst_w; x++) {
+        double pos = ((double)x + 0.5) * src_w / dst_w - 0.5;
+        if (pos < 0) pos = 0;
+        if (pos > src_w - 1) pos = src_w - 1;
+        t[x] = (uint32_t)(pos * 65536.0);
+    }
+    return t;
+}
+
+/* Horizontal linear interpolation of one row */
+static void scale_row(const uint8_t *src, unsigned src_w,
+                      uint8_t *dst, unsigned dst_w, const uint32_t *tab)
+{
+    for (unsigned x = 0; x < dst_w; x++) {
+        uint32_t i = tab[x] >> 16;
+        uint32_t f = (tab[x] >> 8) & 0xFF;
+        uint32_t a = src[i];
+        uint32_t b = src[i + 1 < src_w ? i + 1 : i];
+        dst[x] = (uint8_t)((a * (256 - f) + b * f + 128) >> 8);
+    }
+}
 
 /* ---------- serial port to the Leonardo ---------- */
 static int             g_ser = -1;
@@ -158,10 +189,28 @@ static void vf_callback(camera_handle_t h, camera_buffer_t *buf, void *arg)
         }
     }
 
+    /* Stretch to the output width (e.g. 720 -> 854 for 16:9) if needed */
+    const unsigned char * const *planes = (const unsigned char * const *)g_planes;
+    const int *strides = g_strides;
+    unsigned out_w = w;
+    if (g_ow != w) {
+        for (unsigned y = 0; y < hh; y++) {
+            scale_row(g_planes[0] + (size_t)y * w, w,
+                      g_oplanes[0] + (size_t)y * g_ow, g_ow, g_ytab);
+            scale_row(g_planes[1] + (size_t)y * (w / 2), w / 2,
+                      g_oplanes[1] + (size_t)y * (g_ow / 2), g_ow / 2, g_ctab);
+            scale_row(g_planes[2] + (size_t)y * (w / 2), w / 2,
+                      g_oplanes[2] + (size_t)y * (g_ow / 2), g_ow / 2, g_ctab);
+        }
+        planes = (const unsigned char * const *)g_oplanes;
+        strides = g_ostrides;
+        out_w = g_ow;
+    }
+
     unsigned char *jpeg = NULL;
     size_t len = 0;
-    if (tj3CompressFromYUVPlanes8(g_tj, (const unsigned char * const *)g_planes,
-                                  (int)w, g_strides, (int)hh, &jpeg, &len) != 0) {
+    if (tj3CompressFromYUVPlanes8(g_tj, planes, (int)out_w, strides, (int)hh,
+                                  &jpeg, &len) != 0) {
         fprintf(stderr, "kvmd: jpeg: %s\n", tj3GetErrorStr(g_tj));
         tj3Free(jpeg);
         return;
@@ -219,6 +268,18 @@ static int camera_start(camera_handle_t *out)
 /* Serial / keyboard                                                     */
 /* ===================================================================== */
 
+/* true if s is an optionally-negative decimal integer of 1..5 digits */
+static int is_int(const char *s, const char **end)
+{
+    const char *p = s;
+    if (*p == '-') p++;
+    const char *d = p;
+    while (isdigit((unsigned char)*p)) p++;
+    if (p == d || p - d > 5) return 0;
+    if (end) *end = p;
+    return 1;
+}
+
 /* Accept only the Leonardo's command format, so the browser can't send junk */
 static int valid_cmd(const char *s)
 {
@@ -236,6 +297,19 @@ static int valid_cmd(const char *s)
         for (const char *p = s + 1; *p; p++)
             if ((unsigned char)*p < 0x20 || (unsigned char)*p > 0x7e) return 0;
         return 1;
+    case 'm': {                                 /* m<dx>,<dy>[,<wheel>] */
+        const char *p;
+        if (!is_int(s + 1, &p) || *p != ',') return 0;
+        if (!is_int(p + 1, &p)) return 0;
+        if (*p == ',' && !is_int(p + 1, &p)) return 0;
+        return *p == '\0';
+    }
+    case 'w': {                                 /* w<n> */
+        const char *p;
+        return is_int(s + 1, &p) && *p == '\0';
+    }
+    case 'b':                                   /* b<L|R|M><d|u|c> */
+        return n == 3 && strchr("LRM", s[1]) && strchr("duc", s[2]);
     default:
         return 0;
     }
@@ -301,6 +375,14 @@ static void log_cmd(const char *ip, const char *cmd, const char *result)
     case 'k': snprintf(what, sizeof what, "tap      %s", key_name(k, kb, sizeof kb)); break;
     case 'a': snprintf(what, sizeof what, "release  all keys"); break;
     case 't': snprintf(what, sizeof what, "type     \"%.60s\"", cmd + 1); break;
+    case 'm': snprintf(what, sizeof what, "mouse    move %s", cmd + 1); break;
+    case 'w': snprintf(what, sizeof what, "mouse    scroll %s", cmd + 1); break;
+    case 'b': {
+        const char *btn = cmd[1] == 'L' ? "left" : cmd[1] == 'R' ? "right" : "middle";
+        const char *act = cmd[2] == 'd' ? "down" : cmd[2] == 'u' ? "up" : "click";
+        snprintf(what, sizeof what, "mouse    %s %s", btn, act);
+        break;
+    }
     default:  snprintf(what, sizeof what, "?        %.40s", cmd); break;
     }
     fprintf(stderr, "[%s] %-15s %s%s%s\n", ts, ip, what,
@@ -439,7 +521,10 @@ static void serve_key(int fd, char *body, const char *ip)
         if (n && line[n - 1] == '\r') line[n - 1] = '\0';
         if (!line[0]) continue;
         if (!valid_cmd(line)) { log_cmd(ip, line, "REJECTED (invalid)"); bad++; continue; }
-        if (serial_send(line) == 0) { log_cmd(ip, line, NULL); sent++; }
+        if (serial_send(line) == 0) {
+            if (line[0] != 'm') log_cmd(ip, line, NULL);   /* moves are too frequent to log */
+            sent++;
+        }
         else {
             log_cmd(ip, line, "FAILED (serial port unavailable)");
             send_simple(fd, "503 Service Unavailable", "text/plain", "serial port unavailable\n");
@@ -535,17 +620,21 @@ static void on_signal(int sig) { (void)sig; g_running = 0; }
 static void usage(const char *prog)
 {
     fprintf(stderr,
-        "usage: %s [-w width] [-h height] [-p port] [-q quality] [-s serial]\n",
+        "usage: %s [-w width] [-h height] [-W output_width] [-p port] [-q quality] [-s serial]\n"
+        "  -w/-h  capture size from the camera (default 720x480)\n"
+        "  -W     output width; default stretches to 16:9 (854 for 480 lines).\n"
+        "         Use -W 768 for 16:10, or -W 720 to keep the camera's shape.\n",
         prog);
 }
 
 int main(int argc, char **argv)
 {
     int opt;
-    while ((opt = getopt(argc, argv, "w:h:p:q:s:")) != -1) {
+    while ((opt = getopt(argc, argv, "w:h:W:p:q:s:")) != -1) {
         switch (opt) {
         case 'w': g_w = (unsigned)atoi(optarg); break;
         case 'h': g_h = (unsigned)atoi(optarg); break;
+        case 'W': g_ow = (unsigned)atoi(optarg); break;
         case 'p': g_port = atoi(optarg); break;
         case 'q': g_quality = atoi(optarg); break;
         case 's': g_serial_path = optarg; break;
@@ -554,6 +643,12 @@ int main(int argc, char **argv)
     }
     if (g_w == 0 || g_h == 0 || (g_w & 1)) {
         fprintf(stderr, "kvmd: width must be even and non-zero\n");
+        return 1;
+    }
+    if (g_ow == 0)
+        g_ow = ((g_h * 16 + 4) / 9 + 1) & ~1u;   /* 16:9, rounded to even: 480 -> 854 */
+    if ((g_ow & 1) || g_ow < 16 || g_ow > 4096) {
+        fprintf(stderr, "kvmd: output width must be even (16..4096)\n");
         return 1;
     }
 
@@ -576,6 +671,20 @@ int main(int argc, char **argv)
     g_planes[2] = malloc((size_t)(g_w / 2) * g_h);
     if (!g_planes[0] || !g_planes[1] || !g_planes[2]) { fprintf(stderr, "kvmd: out of memory\n"); return 1; }
 
+    if (g_ow != g_w) {
+        g_ostrides[0] = (int)g_ow;
+        g_ostrides[1] = g_ostrides[2] = (int)(g_ow / 2);
+        g_oplanes[0] = malloc((size_t)g_ow * g_h);
+        g_oplanes[1] = malloc((size_t)(g_ow / 2) * g_h);
+        g_oplanes[2] = malloc((size_t)(g_ow / 2) * g_h);
+        g_ytab = make_scale_table(g_w, g_ow);
+        g_ctab = make_scale_table(g_w / 2, g_ow / 2);
+        if (!g_oplanes[0] || !g_oplanes[1] || !g_oplanes[2] || !g_ytab || !g_ctab) {
+            fprintf(stderr, "kvmd: out of memory\n");
+            return 1;
+        }
+    }
+
     /* serial (keyboard); video still works if this fails */
     g_ser = open(g_serial_path, O_WRONLY | O_NOCTTY);
     if (g_ser < 0)
@@ -597,8 +706,8 @@ int main(int argc, char **argv)
     if (bind(srv, (struct sockaddr *)&addr, sizeof addr) < 0) { perror("bind"); return 1; }
     if (listen(srv, 16) < 0) { perror("listen"); return 1; }
 
-    fprintf(stderr, "kvmd: %ux%u, quality %d, http://<pi-ip>:%d/  (Ctrl+C to stop)\n",
-            g_w, g_h, g_quality, g_port);
+    fprintf(stderr, "kvmd: capture %ux%u -> output %ux%u, quality %d, http://<pi-ip>:%d/  (Ctrl+C to stop)\n",
+            g_w, g_h, g_ow, g_h, g_quality, g_port);
 
     while (g_running) {
         struct sockaddr_in peer;
