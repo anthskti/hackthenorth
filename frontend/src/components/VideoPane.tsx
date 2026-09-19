@@ -11,6 +11,7 @@ type VideoPaneProps = {
   onFocus: () => void;
   onBlur: () => void;
   useStream?: boolean;
+  noUplink?: boolean;
   onManualInput?: (payload: ManualInputPayload) => void;
 };
 
@@ -21,10 +22,15 @@ export function VideoPane({
   onFocus,
   onBlur,
   useStream = false,
+  noUplink = false,
   onManualInput,
 }: VideoPaneProps) {
-  const manualActive = mode === "manual";
-  const badgeLabel = piConnected ? "LIVE" : "Pi disconnected";
+  const manualActive = mode === "manual" && !noUplink;
+  const badgeLabel = noUplink
+    ? "NO UPLINK"
+    : piConnected
+      ? "LIVE"
+      : "PI DISCONNECTED";
   const paneRef = useRef<HTMLDivElement>(null);
   const pendingMoveRef = useRef<{ x: number; y: number } | null>(null);
   const rafRef = useRef<number | null>(null);
@@ -96,17 +102,36 @@ export function VideoPane({
     };
   }, []);
 
+  const showLiveBadge = !noUplink && piConnected;
+
   return (
     <div
-      className={`relative flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-zinc-200 bg-zinc-900 dark:border-zinc-800 ${
+      className={`relative flex min-h-0 flex-1 flex-col overflow-hidden border border-[var(--rule)] ${
         manualActive
-          ? "outline-none ring-2 ring-transparent focus-within:ring-emerald-500/60"
+          ? "outline-none focus-within:outline focus-within:outline-1 focus-within:outline-[var(--rule)]"
           : ""
       }`}
     >
+      <span
+        className="pointer-events-none absolute left-0 top-0 z-10 h-4 w-4 border-l border-t border-[var(--rule)]"
+        aria-hidden
+      />
+      <span
+        className="pointer-events-none absolute right-0 top-0 z-10 h-4 w-4 border-r border-t border-[var(--rule)]"
+        aria-hidden
+      />
+      <span
+        className="pointer-events-none absolute bottom-0 left-0 z-10 h-4 w-4 border-b border-l border-[var(--rule)]"
+        aria-hidden
+      />
+      <span
+        className="pointer-events-none absolute bottom-0 right-0 z-10 h-4 w-4 border-b border-r border-[var(--rule)]"
+        aria-hidden
+      />
+
       <div
         ref={paneRef}
-        className={`relative aspect-video w-full bg-zinc-950 ${
+        className={`relative min-h-0 w-full flex-1 bg-black ${
           manualActive ? "cursor-crosshair" : ""
         }`}
         tabIndex={manualActive ? 0 : -1}
@@ -122,7 +147,17 @@ export function VideoPane({
             : "Remote screen"
         }
       >
-        {useStream ? (
+        {noUplink ? (
+          <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center gap-2 px-6 text-center text-sm opacity-60">
+            <p className="font-mono text-xs uppercase tracking-widest">
+              No uplink
+            </p>
+            <p className="max-w-sm text-xs">
+              This system is not connected to the live backend. Open the live
+              system to control hardware.
+            </p>
+          </div>
+        ) : useStream ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img
             src={VIDEO_STREAM_PATH}
@@ -130,30 +165,30 @@ export function VideoPane({
             className="pointer-events-none absolute inset-0 h-full w-full object-contain"
           />
         ) : (
-          <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center gap-2 px-6 text-center text-zinc-500">
-            <p className="text-sm font-medium text-zinc-400">Video placeholder</p>
+          <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center gap-2 px-6 text-center opacity-60">
+            <p className="font-mono text-xs uppercase tracking-widest">
+              Video placeholder
+            </p>
             <p className="max-w-sm text-xs">
               Stream loads from{" "}
-              <code className="rounded bg-zinc-800 px-1 py-0.5 text-zinc-300">
-                /video/stream
-              </code>{" "}
+              <code className="border border-[var(--rule)] px-1">/video/stream</code>{" "}
               when the backend is up
             </p>
           </div>
         )}
 
         <div
-          className={`pointer-events-none absolute left-3 top-3 rounded px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider ${
-            piConnected
-              ? "bg-red-600/90 text-white"
-              : "bg-zinc-700/90 text-zinc-200"
+          className={`pointer-events-none absolute left-3 top-3 px-2 py-0.5 font-mono text-[10px] font-semibold uppercase tracking-wider ${
+            showLiveBadge
+              ? "bg-accent text-white"
+              : "border border-[var(--rule)] bg-[var(--background)]"
           }`}
         >
           {badgeLabel}
         </div>
 
         {manualActive && focused && (
-          <div className="pointer-events-none absolute bottom-3 left-3 rounded bg-emerald-600/90 px-2 py-1 text-[10px] font-medium text-white">
+          <div className="pointer-events-none absolute bottom-3 left-3 border border-[var(--rule)] bg-[var(--foreground)] px-2 py-1 font-mono text-[10px] uppercase tracking-wide text-[var(--background)]">
             Manual control active
           </div>
         )}

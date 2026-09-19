@@ -39,7 +39,12 @@ function applySnapshot(
   setPiConnected(snap.pi_connected ?? false);
 }
 
-export function useDashboardLive() {
+type UseDashboardLiveOptions = {
+  enabled?: boolean;
+};
+
+export function useDashboardLive(options: UseDashboardLiveOptions = {}) {
+  const enabled = options.enabled ?? true;
   const [mode, setMode] = useState<Mode>("ai");
   const [state, setState] = useState<AgentState | null>("idle");
   const [logs, setLogs] = useState<LogEntry[]>([]);
@@ -67,6 +72,12 @@ export function useDashboardLive() {
   }, []);
 
   useEffect(() => {
+    if (!enabled) {
+      setWsConnected(false);
+      setBackendReachable(false);
+      return;
+    }
+
     let cancelled = false;
 
     const connect = () => {
@@ -125,7 +136,7 @@ export function useDashboardLive() {
       }
       wsRef.current?.close();
     };
-  }, [hydrate]);
+  }, [hydrate, enabled]);
 
   const sendManualInput = useCallback((payload: ManualInputPayload) => {
     const ws = wsRef.current;
