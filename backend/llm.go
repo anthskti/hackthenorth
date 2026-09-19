@@ -23,8 +23,6 @@ type AgentDecision struct {
 	Thought     string `json:"thought"`
 	Action      string `json:"action"`
 	Value       string `json:"value"`
-	X           int    `json:"x"`
-	Y           int    `json:"y"`
 	Done        bool   `json:"done"`
 }
 
@@ -59,15 +57,23 @@ func (c *LLMClient) Ready() error {
 	return nil
 }
 
-func (c *LLMClient) Decide(ctx context.Context, goal string, jpeg []byte) (*AgentDecision, []byte, error) {
+func (c *LLMClient) Decide(ctx context.Context, goal string, jpeg []byte, history []AgentDecision) (*AgentDecision, []byte, error) {
 	if err := c.Ready(); err != nil {
 		return nil, nil, err
+	}
+
+	goalText := fmt.Sprintf("Operator goal:\n%s", goal)
+	if len(history) > 0 {
+		goalText += "\n\nPrior steps this run (newest last):\n"
+		for i, h := range history {
+			goalText += fmt.Sprintf("%d) action=%s value=%q done=%v — %s\n", i+1, h.Action, h.Value, h.Done, h.Observation)
+		}
 	}
 
 	content := []map[string]any{
 		{
 			"type": "input_text",
-			"text": fmt.Sprintf("Operator goal:\n%s", goal),
+			"text": goalText,
 		},
 	}
 	if len(jpeg) > 0 {
@@ -85,13 +91,14 @@ func (c *LLMClient) Decide(ctx context.Context, goal string, jpeg []byte) (*Agen
 
 	body := map[string]any{
 		"model": c.model,
-		"instructions": `You are a vision agent driving a remote machine over IP-KVM.
-You receive the operator's goal and a JPEG of the current HDMI screen.
-Return JSON for the single next action. Do not execute anything yourself.
-Use action "key" for keyboard (value like ENTER, F2, a).
-Use "mouse_click" / "mouse_move" with x,y in frame pixels.
-Use "wait" when the screen is mid-transition.
-Use "done" when the goal is already complete.`,
+		"instructions": `You are a vision agent driving a remote machine over IP-KVM (BIOS/UEFI and text menus).
+Hardware is KEYBOARD ONLY — no mouse. You receive the goal, prior steps, and a JPEG of the HDMI screen.
+Return JSON for the next useful HID step only.
+- action "type" with value = full string to type in one step (e.g. "hello world").
+- action "key" with value = single key (ENTER, ESC, F2, UP, DOWN, LEFT, RIGHT, TAB, SPACE, or one letter).
+- action "wait" when the screen is mid-transition.
+- action "done" with done=true when the goal is finished (set observation to what you found).
+Repeat across turns until the goal is complete: e.g. type text, then next turn key ENTER.`,
 		"input": []map[string]any{
 			{
 				"role":    "user",
@@ -130,7 +137,7 @@ func agentDecisionSchema() map[string]any {
 	return map[string]any{
 		"type":                 "object",
 		"additionalProperties": false,
-		"required":             []string{"observation", "thought", "action", "value", "x", "y", "done"},
+		"required":             []string{"observation", "thought", "action", "value", "done"},
 		"properties": map[string]any{
 			"observation": map[string]any{
 				"type":        "string",
@@ -142,19 +149,11 @@ func agentDecisionSchema() map[string]any {
 			},
 			"action": map[string]any{
 				"type": "string",
-				"enum": []string{"key", "mouse_click", "mouse_move", "wait", "done"},
+				"enum": []string{"type", "key", "wait", "done"},
 			},
 			"value": map[string]any{
 				"type":        "string",
-				"description": "Key name, mouse button, or wait hint. Empty string if unused.",
-			},
-			"x": map[string]any{
-				"type":        "integer",
-				"description": "Mouse X in frame pixels. 0 if unused.",
-			},
-			"y": map[string]any{
-				"type":        "integer",
-				"description": "Mouse Y in frame pixels. 0 if unused.",
+				"description": "Text to type, key name, or empty for wait/done.",
 			},
 			"done": map[string]any{
 				"type":        "boolean",

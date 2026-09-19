@@ -1,7 +1,9 @@
 package main
 
 import (
+	"context"
 	"net/http"
+	"time"
 
 	"github.com/gin-gonic/gin"
 )
@@ -15,15 +17,35 @@ func main() {
 			hub.BroadcastStatus()
 		}
 	})
-	hub = NewHub(store)
+	pi := NewPiClient()
+	hub = NewHub(store, pi)
 	frames := NewFrameBuffer()
 	llm := NewLLMClient()
-	agent := NewAgentLoop(store, hub, llm, frames)
+	agent := NewAgentLoop(store, hub, llm, pi, frames)
 
 	if err := llm.Ready(); err != nil {
 		store.AppendLog("OpenAI disabled: set OPENAI_API_KEY in backend/.env")
 	} else {
 		store.AppendLog("OpenAI ready (" + llm.model + ")")
+	}
+
+	if pi.Enabled() {
+		store.AppendLog("QNX kvmd " + pi.stream)
+		go func() {
+			ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+			defer cancel()
+			if err := pi.Probe(ctx); err != nil {
+				store.SetPiConnected(false)
+				store.AppendLog("QNX unreachable: " + err.Error())
+				hub.BroadcastStatus()
+				return
+			}
+			store.SetPiConnected(true)
+			store.AppendLog("QNX snapshot OK")
+			hub.BroadcastStatus()
+		}()
+	} else {
+		store.AppendLog("QNX unset — mock video. Set QNX_BASE_URL in backend/.env")
 	}
 
 	router := gin.Default()
@@ -34,7 +56,7 @@ func main() {
 
 	registerAPI(router, store, hub, agent)
 
-	router.GET("/video/stream", handleVideoStream(frames))
+	router.GET("/video/stream", pi.HandleStream(frames, store))
 	router.GET("/ws/dashboard", hub.HandleDashboardWS)
 
 	router.Run()

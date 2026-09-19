@@ -1,8 +1,8 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
-	"fmt"
 	"net/http"
 	"sync"
 
@@ -18,12 +18,14 @@ type Hub struct {
 	mu      sync.Mutex
 	clients map[*websocket.Conn]struct{}
 	store   *Store
+	pi      *PiClient
 }
 
-func NewHub(store *Store) *Hub {
+func NewHub(store *Store, pi *PiClient) *Hub {
 	return &Hub{
 		clients: make(map[*websocket.Conn]struct{}),
 		store:   store,
+		pi:      pi,
 	}
 }
 
@@ -95,8 +97,17 @@ func (h *Hub) handleClientMessage(data []byte) {
 	if h.store.Mode() != ModeManual {
 		return
 	}
-	// Pi / HID forward later; accept and acknowledge clicks only in the log.
-	if msg.Action == "mouse_click" {
-		h.BroadcastLog(fmt.Sprintf("Manual click at (%d, %d)", msg.X, msg.Y))
+	switch msg.Action {
+	case "mouse_click", "mouse_move":
+		return
+	case "key":
+		if h.pi == nil || !h.pi.Enabled() {
+			h.BroadcastLog("No QNX_BASE_URL — key " + msg.Value)
+			return
+		}
+		if err := h.pi.SendKey(context.Background(), msg.Value); err != nil {
+			h.BroadcastLog("QNX /key error: " + err.Error())
+			return
+		}
 	}
 }
