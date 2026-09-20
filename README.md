@@ -14,9 +14,9 @@
 
 ## Inspiration
 
-During a major data-center outage, tens to hundreds of servers can end up bricked or unreachable by every remote tool that lives at the OS level. A bad firmware or kernel update is enough. Traditionally, troubleshooting that means technicians on site — often many of them.
+During a major data-center outage, tens to hundreds of servers can end up bricked or unreachable by every remote tool that lives at the OS level. A bad firmware or kernel update is enough. Traditionally, troubleshooting that means technicians on site, often many of them.
 
-AI coding agents hit the same ceiling. They can write code, run commands, read a stack trace — but only inside an operating system. The moment the failure is *below* the OS, a corrupted bootloader, a BIOS setting, a reinstall, the agent has nothing to act inside.
+AI coding agents hit the same ceiling. They can write code, run commands, read a stack trace, but only inside an operating system. The moment the failure is *below* the OS, a corrupted bootloader, a BIOS setting, a reinstall, the agent has nothing to act inside.
 
 IP-KVM already solves the remote half of this: see and control a machine over the network when SSH is not an option. But a human is still doing the clicking. orca-ctl is the next step.
 
