@@ -6,7 +6,7 @@
 
 **An AI agent with eyes and hands on a machine that has no operating system.**
 
-[Demo video](https://youtu.be/W0umiOq4xsg) · [Hack the North 2026](https://hackthenorth.com)
+[Demo video](https://youtu.be/W0umiOq4xsg) · [Hack the North 2026 DevPost](https://devpost.com/software/btos)
 
 </div>
 
