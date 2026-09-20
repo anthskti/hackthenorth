@@ -2,7 +2,7 @@
 
 <img src="docs/img/logo.png" alt="orcactl" width="160">
 
-# orcactl
+# orca-ctl
 
 **An AI agent with eyes and hands on a machine that has no operating system.**
 
@@ -18,26 +18,26 @@ During a major data-center outage, tens to hundreds of servers can end up bricke
 
 AI coding agents hit the same ceiling. They can write code, run commands, read a stack trace — but only inside an operating system. The moment the failure is *below* the OS, a corrupted bootloader, a BIOS setting, a reinstall, the agent has nothing to act inside.
 
-IP-KVM already solves the remote half of this: see and control a machine over the network when SSH is not an option. But a human is still doing the clicking. orcactl is the next step.
+IP-KVM already solves the remote half of this: see and control a machine over the network when SSH is not an option. But a human is still doing the clicking. orca-ctl is the next step.
 
 ## What it does
 
-orcactl connects to each machine through its **hardware**: reading directly from HDMI and emulating keyboard and mouse input as a USB peripheral.
+orca-ctl connects to each machine through its **hardware**: reading directly from HDMI and emulating keyboard and mouse input as a USB peripheral.
 
 That means it works on any machine **out of the box, with no software installed** — one that has never been configured, is mid-reinstall, or is sitting at a BIOS prompt with no OS at all. Switching between servers is just re-plugging.
 
-On request, orcactl autonomously iterates to solve an issue, capturing the display and sending input until it is done. This **scales to diagnosing and interpreting several connected machines at once**.
+On request, orca-ctl autonomously iterates to solve an issue, capturing the display and sending input until it is done. This **scales to diagnosing and interpreting several connected machines at once**.
 
 <div align="center">
-  <img src="docs/img/dashboard.png" alt="The orcactl dashboard: live screen, agent chat, action log" width="820">
+  <img src="docs/img/dashboard.png" alt="The orca-ctl dashboard: live screen, agent chat, action log" width="820">
   <br><em>Live target screen, agent reasoning, and the action log</em>
 </div>
 
 ## How we built it
 
 <div align="center">
-  <img src="docs/img/setup.jpg" alt="Full bench: operator laptop, target ThinkPad, and the orcactl controller" width="820">
-  <br><em>Operator laptop (left), target machine (centre), orcactl controller (right)</em>
+  <img src="docs/img/setup.jpg" alt="Full bench: operator laptop, target ThinkPad, and the orca-ctl controller" width="820">
+  <br><em>Operator laptop (left), target machine (centre), orca-ctl controller (right)</em>
 </div>
 
 ```
@@ -62,7 +62,7 @@ On request, orcactl autonomously iterates to solve an issue, capturing the displ
   OpenAI vision agent                      MJPEG + WebSocket
 ```
 
-orcactl uses a **Raspberry Pi 5** running QNX, connected over GPIO pins on UART to an **Arduino Leonardo** (Pi TX to Leonardo RX, plus ground). The QNX Pi acts as the middle layer between our agent system and the machine, handling both input and output.
+orca-ctl uses a **Raspberry Pi 5** running QNX, connected over GPIO pins on UART to an **Arduino Leonardo** (Pi TX to Leonardo RX, plus ground). The QNX Pi acts as the middle layer between our agent system and the machine, handling both input and output.
 
 Because the Pi 5 does not support acting as a USB peripheral, input commands are forwarded to the Leonardo, which maps and sends the keystrokes and mouse coordinates.
 
@@ -94,7 +94,7 @@ Making an embedded system, and being able to watch our hardware agent run remote
 
 The QNX development environment, AI agent design, and USB protocols.
 
-## What's next for orcactl
+## What's next for orca-ctl
 
 Running on more devices concurrently :)
 
