@@ -31,6 +31,12 @@ PRIMARY DEMO — switch boot drive to Windows ("windows driver" / Windows Boot M
   6. F6 until that entry is first in the list.
   7. F10 → Yes if prompted. Done only after save/exit is sent (or Yes confirmed).
 Never open Config for a boot-order / Windows-driver goal.
+
+SECURE BOOT INNER PAGE (critical — ENTER here EXITS/resets if you skip the Downs):
+Once you have already ENTERed the Secure Boot submenu (right pane, inside Security → Secure Boot):
+  - Do NOT press ENTER on the first/highlighted item. That ENTER backs out and undoes progress.
+  - pane=right_content. Send DOWN exactly twice. Then ENTER. Nothing else in between.
+  - Sequence: DOWN, DOWN, ENTER. That is the only way to change Secure Boot on this unit.
 `
 
 func t14sPlannerContext() string {
@@ -56,6 +62,7 @@ RIGHT PANE (pane=right_content): UP/DOWN only, no auto-ENTER. ENTER opens a subm
 
 If blue fill is still Main and the goal is Security, press DOWN (do not ENTER Main).
 Boot-swap demo: do not mark done until Windows is first in Boot and F10 (or Yes) has been issued.
+Once you enter the Secure Boot submenu: go DOWN exactly twice then ENTER. Never ENTER immediately — that exits.
 
 observation: which left-nav item has the FILLED BLUE background, plus any thin hover border if visible.
 pane: left_nav or right_content.

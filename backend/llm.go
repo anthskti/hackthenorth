@@ -88,6 +88,7 @@ Rules:
 - USB installer won't boot → still Setup (UEFI/Legacy, Boot) and maybe Security → Secure Boot — say so in issue.
 - Fan/USB charge/display → Config (Power / USB / Display).
 - Passwords, TPM, Secure Boot, camera missing → Security.
+- Once you enter the Secure Boot submenu: go DOWN exactly twice then ENTER. Do NOT ENTER on the first item — that exits and resets progress. Planner steps MUST include: after opening Secure Boot → DOWN, DOWN, ENTER.
 - Left-nav travel is one UP/DOWN per step. The executor HID layer sends ENTER after each navbar UP/DOWN so the blue fill (open tab) moves. Do NOT list ENTER after every DOWN.
 - Use ENTER only to open a right-pane submenu (e.g. Boot) or a dialog.
 - verify: filled blue background on the target left-nav tab (not a thin hover border).`,

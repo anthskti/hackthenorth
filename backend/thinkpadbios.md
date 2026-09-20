@@ -96,7 +96,7 @@ Typical submenus/items on this BIOS generation:
 | **I/O Port Access** | Per-device enable/disable: Ethernet LAN, Wireless LAN, Bluetooth, Camera, Microphone, Fingerprint Reader, Memory Card Slot, USB ports, Optical/other. Useful for hardening or for OSes lacking driver support for a given device. |
 | **Internal Device Access** | Similar granular control over internally-attached devices (WWAN card, etc.), sometimes merged with I/O Port Access on newer firmware. |
 | **Anti-Theft / Absolute Persistence Module** | Enable/disable the UEFI hooks used by Absolute (Computrace)-style anti-theft/asset-tracking services. |
-| **Secure Boot** | Enable/disable UEFI Secure Boot, manage/reset PK/KEK/db/dbx keys, switch between Standard Mode and Custom Mode. **Must often be disabled (or set to allow self-signed keys) to dual-boot most Linux distributions**, unless using a shim that's Microsoft-signed. |
+| **Secure Boot** | Enable/disable UEFI Secure Boot, manage/reset PK/KEK/db/dbx keys, switch between Standard Mode and Custom Mode. **Must often be disabled (or set to allow self-signed keys) to dual-boot most Linux distributions**, unless using a shim that's Microsoft-signed. **KVM: once you enter the Secure Boot submenu, go DOWN exactly twice then ENTER. Do not ENTER first — that exits.** |
 | **Device Guard / Memory Protection extras** | Windows-specific virtualization-based security readiness toggles (present on some SKUs). |
 | **Intelligent Security / User Presence Sensing** | Human-presence sensor features (lock-on-leave, wake-on-approach) if the unit has the sensor hardware. |
 

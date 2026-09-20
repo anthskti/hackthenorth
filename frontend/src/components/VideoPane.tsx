@@ -1,9 +1,21 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { toast } from "sonner";
 import { VIDEO_STREAM_PATH } from "@/lib/backend";
 import { hidHex, kc, queueKeyLine } from "@/lib/kvmHid";
 import type { Mode } from "@/lib/types";
+
+function hidKeyLabel(e: React.KeyboardEvent<HTMLInputElement>): string {
+  if (e.key === " ") return "Space";
+  if (e.key.length === 1 && e.key !== "Unidentified") return e.key;
+  return (
+    e.code
+      .replace(/^Arrow/, "")
+      .replace(/^Key/, "")
+      .replace(/^Digit/, "") || e.code
+  );
+}
 
 type VideoPaneProps = {
   mode: Mode;
@@ -60,6 +72,7 @@ export function VideoPane({
       }
       heldRef.current.add(k);
       send("p" + hidHex(k));
+      toast(`Key: ${hidKeyLabel(e)}`, { id: "hid-key", duration: 1200 });
     },
     [keyboardReady, send],
   );
