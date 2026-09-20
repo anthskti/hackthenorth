@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"strconv"
 	"strings"
@@ -18,7 +19,7 @@ var (
 	errEmptyGoal   = errors.New("goal is required")
 )
 
-const defaultAgentMaxSteps = 8
+const defaultAgentMaxSteps = 16
 
 type runPhase int
 
@@ -29,17 +30,17 @@ const (
 )
 
 type AgentLoop struct {
-	mu        sync.Mutex
-	store     *Store
-	hub       *Hub
-	llm       *LLMClient
-	pi        *PiClient
-	frames    *FrameBuffer
-	maxSteps  int
-	goal      string
-	paused    bool
-	phase     runPhase
-	cancel    context.CancelFunc
+	mu       sync.Mutex
+	store    *Store
+	hub      *Hub
+	llm      *LLMClient
+	pi       *PiClient
+	frames   *FrameBuffer
+	maxSteps int
+	goal     string
+	paused   bool
+	phase    runPhase
+	cancel   context.CancelFunc
 }
 
 func agentMaxSteps() int {
@@ -170,6 +171,30 @@ func (a *AgentLoop) run(ctx context.Context, goal string) {
 	}()
 
 	a.hub.BroadcastLog("Goal: " + goal)
+	a.hub.BroadcastLog("Planning for ThinkPad T14s Gen 6 BIOS…")
+	plan, planErr := a.llm.Plan(ctx, goal)
+	if ctx.Err() != nil {
+		return
+	}
+	if planErr != nil {
+		a.hub.BroadcastLog("Plan failed (continuing without): " + planErr.Error())
+		plan = nil
+	} else if plan != nil {
+		if plan.Issue != "" {
+			a.hub.BroadcastLog("Issue: " + plan.Issue)
+		}
+		if plan.MenuPath != "" {
+			a.hub.BroadcastLog("Menu: " + plan.MenuPath)
+		}
+		if plan.Verify != "" {
+			a.hub.BroadcastLog("Verify: " + plan.Verify)
+		}
+		a.hub.BroadcastLog("Plan: " + plan.Summary)
+		for i, s := range plan.Steps {
+			a.hub.BroadcastLog(fmt.Sprintf("  %d. %s", i+1, s))
+		}
+	}
+
 	var history []AgentDecision
 	goalComplete := false
 
@@ -186,7 +211,12 @@ func (a *AgentLoop) run(ctx context.Context, goal string) {
 		a.hub.BroadcastLog("Step " + strconv.Itoa(step) + "/" + strconv.Itoa(a.maxSteps) + " — snapshot, " + a.llm.model + "…")
 
 		frame := a.captureFrame(ctx)
-		decision, rawJSON, err := a.llm.Decide(ctx, goal, frame, history)
+		origN := len(frame)
+		frame = compressForLLM(frame)
+		if origN > 0 {
+			a.hub.BroadcastLog(fmt.Sprintf("LLM still %d → %d bytes", origN, len(frame)))
+		}
+		decision, rawJSON, err := a.llm.Decide(ctx, goal, frame, history, plan)
 		if ctx.Err() != nil {
 			return
 		}
@@ -213,17 +243,18 @@ func (a *AgentLoop) run(ctx context.Context, goal string) {
 			a.hub.BroadcastLog("Thought: " + decision.Thought)
 		}
 
-		if decision != nil {
-			history = append(history, *decision)
-		}
-
 		if decision != nil && (decision.Done || decision.Action == "done") {
+			history = append(history, *decision)
 			a.hub.BroadcastLog("Agent marked goal complete")
 			goalComplete = true
 			break
 		}
 
+		navCommit := navbarArrow(decision)
 		sentHID := a.dispatch(ctx, decision)
+		if decision != nil {
+			history = append(history, *decision)
+		}
 		if ctx.Err() != nil {
 			return
 		}
@@ -234,7 +265,11 @@ func (a *AgentLoop) run(ctx context.Context, goal string) {
 		}
 
 		if sentHID {
-			_ = a.wait(ctx, 1000*time.Millisecond)
+			wait := 1000 * time.Millisecond
+			if navCommit {
+				wait = 1400 * time.Millisecond
+			}
+			_ = a.wait(ctx, wait)
 		}
 	}
 
@@ -281,6 +316,40 @@ func (a *AgentLoop) dispatch(ctx context.Context, d *AgentDecision) bool {
 		return false
 	}
 	a.hub.BroadcastLog("Sent to kvmd: " + d.Action + " " + d.Value)
+
+	if navbarArrow(d) {
+		if !a.wait(ctx, 220*time.Millisecond) {
+			return true
+		}
+		if err := a.pi.SendKey(ctx, "ENTER"); err != nil {
+			a.hub.BroadcastLog("QNX /key error (navbar ENTER): " + err.Error())
+			return true
+		}
+		a.hub.BroadcastLog("Navbar commit: ENTER (open hovered tab)")
+		d.Value = strings.TrimSpace(d.Value) + "+ENTER"
+	}
+	return true
+}
+
+func navbarArrow(d *AgentDecision) bool {
+	if d == nil || d.Action != "key" {
+		return false
+	}
+	k := strings.ToUpper(strings.TrimSpace(d.Value))
+	if k != "UP" && k != "DOWN" {
+		return false
+	}
+	pane := strings.ToLower(strings.TrimSpace(d.Pane))
+	if pane == "right_content" || pane == "right" {
+		return false
+	}
+	if pane == "left_nav" || pane == "left" || pane == "navbar" {
+		return true
+	}
+	obs := strings.ToLower(d.Observation)
+	if strings.Contains(obs, "right content") || strings.Contains(obs, "right pane") {
+		return false
+	}
 	return true
 }
 

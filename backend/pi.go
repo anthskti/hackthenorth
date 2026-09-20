@@ -10,6 +10,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -22,9 +23,10 @@ type PiClient struct {
 	stream      string
 	key         string
 	snapshot    string
-	streamWidth int
+	streamWidth  int
 	streamHeight int
-	http        *http.Client
+	http         *http.Client
+	sendMu       sync.Mutex
 }
 
 func NewPiClient() *PiClient {
@@ -49,7 +51,7 @@ func NewPiClient() *PiClient {
 		snapshot:     snap,
 		streamWidth:  sw,
 		streamHeight: sh,
-		http:         &http.Client{Timeout: 15 * time.Second},
+		http:         &http.Client{Timeout: 4 * time.Second},
 	}
 }
 
@@ -71,6 +73,13 @@ func streamDimensionsFromEnv() (width, height int) {
 
 func (p *PiClient) Enabled() bool {
 	return p != nil && p.stream != ""
+}
+
+func (p *PiClient) KeyURL() string {
+	if p == nil {
+		return ""
+	}
+	return p.key
 }
 
 func (p *PiClient) Probe(ctx context.Context) error {
@@ -119,7 +128,40 @@ func (p *PiClient) Snapshot(ctx context.Context) ([]byte, error) {
 	return body, nil
 }
 
+// SendRawKeyBody forwards Leonardo lines to QNX POST /key unchanged (same as Pi /ui).
+func (p *PiClient) SendRawKeyBody(ctx context.Context, body string) error {
+	p.sendMu.Lock()
+	defer p.sendMu.Unlock()
+	if p.key == "" {
+		return fmt.Errorf("QNX key URL is not set")
+	}
+	body = strings.TrimSpace(body)
+	if body == "" {
+		return fmt.Errorf("empty key body")
+	}
+	if !strings.HasSuffix(body, "\n") {
+		body += "\n"
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, p.key, strings.NewReader(body))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "text/plain")
+	res, err := p.http.Do(req)
+	if err != nil {
+		return err
+	}
+	defer res.Body.Close()
+	respBody, _ := io.ReadAll(io.LimitReader(res.Body, 1024))
+	if res.StatusCode >= 400 {
+		return fmt.Errorf("qnx /key %s: %s", res.Status, truncate(string(respBody), 200))
+	}
+	return nil
+}
+
 func (p *PiClient) SendCommands(ctx context.Context, cmds ...string) error {
+	p.sendMu.Lock()
+	defer p.sendMu.Unlock()
 	if p.key == "" {
 		return fmt.Errorf("QNX key URL is not set")
 	}

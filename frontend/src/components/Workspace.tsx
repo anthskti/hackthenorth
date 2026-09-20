@@ -26,7 +26,6 @@ export function Workspace({ system }: WorkspaceProps) {
     piConnected,
     backendReachable,
     applySnapshotFromServer,
-    sendManualInput,
     streamWidth,
     streamHeight,
   } = useDashboardLive({ enabled: live });
@@ -68,8 +67,6 @@ export function Workspace({ system }: WorkspaceProps) {
   const handleStop = () => {
     void runAction(() => postControl("stop"));
   };
-
-  const manualInput = live && mode === "manual" ? sendManualInput : undefined;
 
   const displayMode = live ? mode : "ai";
   const displayState = live ? state : null;
@@ -123,7 +120,6 @@ export function Workspace({ system }: WorkspaceProps) {
               onBlur={() => setVideoFocused(false)}
               useStream={showStream}
               noUplink={!live}
-              onManualInput={manualInput}
               streamWidth={streamWidth}
               streamHeight={streamHeight}
             />

@@ -1,8 +1,9 @@
 "use client";
 
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { VIDEO_STREAM_PATH } from "@/lib/backend";
-import type { ManualInputPayload, Mode } from "@/lib/types";
+import { hidHex, kc, queueKeyLine } from "@/lib/kvmHid";
+import type { Mode } from "@/lib/types";
 
 type VideoPaneProps = {
   mode: Mode;
@@ -12,8 +13,6 @@ type VideoPaneProps = {
   onBlur: () => void;
   useStream?: boolean;
   noUplink?: boolean;
-  onManualInput?: (payload: ManualInputPayload) => void;
-  /** MJPEG frame size from kvmd (default 16:9 @ 480p → 854×480). */
   streamWidth?: number;
   streamHeight?: number;
 };
@@ -26,142 +25,61 @@ export function VideoPane({
   onBlur,
   useStream = false,
   noUplink = false,
-  onManualInput,
-  streamWidth = 854,
-  streamHeight = 480,
 }: VideoPaneProps) {
-  const streamAspect = streamWidth / streamHeight;
   const manualActive = mode === "manual" && !noUplink;
+  const keyboardReady = manualActive;
   const badgeLabel = noUplink
     ? "NO UPLINK"
     : piConnected
       ? "LIVE"
       : "PI DISCONNECTED";
-  const paneRef = useRef<HTMLDivElement>(null);
-  const pendingMoveRef = useRef<{ x: number; y: number } | null>(null);
-  const rafRef = useRef<number | null>(null);
-
-  const videoCoords = useCallback((clientX: number, clientY: number) => {
-    const el = paneRef.current;
-    if (!el) return null;
-    const rect = el.getBoundingClientRect();
-    const paneW = rect.width;
-    const paneH = rect.height;
-    if (paneW <= 0 || paneH <= 0) return null;
-
-    const paneAspect = paneW / paneH;
-    let videoW: number;
-    let videoH: number;
-    let offsetX: number;
-    let offsetY: number;
-
-    if (paneAspect > streamAspect) {
-      videoH = paneH;
-      videoW = paneH * streamAspect;
-      offsetX = (paneW - videoW) / 2;
-      offsetY = 0;
-    } else {
-      videoW = paneW;
-      videoH = paneW / streamAspect;
-      offsetX = 0;
-      offsetY = (paneH - videoH) / 2;
-    }
-
-    const localX = clientX - rect.left - offsetX;
-    const localY = clientY - rect.top - offsetY;
-    if (localX < 0 || localY < 0 || localX > videoW || localY > videoH) {
-      return null;
-    }
-
-    const x = Math.round((localX / videoW) * streamWidth);
-    const y = Math.round((localY / videoH) * streamHeight);
-    return {
-      x: Math.max(0, Math.min(streamWidth, x)),
-      y: Math.max(0, Math.min(streamHeight, y)),
-    };
-  }, [streamWidth, streamHeight, streamAspect]);
-
-  const flushMove = useCallback(() => {
-    rafRef.current = null;
-    if (!manualActive || !onManualInput || !pendingMoveRef.current) return;
-    const { x, y } = pendingMoveRef.current;
-    pendingMoveRef.current = null;
-    onManualInput({ action: "mouse_move", x, y });
-  }, [manualActive, onManualInput]);
-
-  const onMouseMove = useCallback(
-    (e: React.MouseEvent) => {
-      if (!manualActive || !onManualInput) return;
-      const coords = videoCoords(e.clientX, e.clientY);
-      if (!coords) return;
-      pendingMoveRef.current = coords;
-      if (rafRef.current === null) {
-        rafRef.current = requestAnimationFrame(flushMove);
-      }
-    },
-    [manualActive, onManualInput, videoCoords, flushMove],
-  );
-
-  const onMouseDown = useCallback(
-    (e: React.MouseEvent) => {
-      if (!manualActive || !onManualInput) return;
-      paneRef.current?.focus();
-      const coords = videoCoords(e.clientX, e.clientY);
-      if (!coords) return;
-      e.preventDefault();
-      const button =
-        e.button === 2 ? "right" : e.button === 1 ? "middle" : "left";
-      onManualInput({
-        action: "mouse_click",
-        button,
-        x: coords.x,
-        y: coords.y,
-      });
-    },
-    [manualActive, onManualInput, videoCoords],
-  );
-
-  const onContextMenu = useCallback(
-    (e: React.MouseEvent) => {
-      if (manualActive) e.preventDefault();
-    },
-    [manualActive],
-  );
-
-  const onWheel = useCallback(
-    (e: React.WheelEvent) => {
-      if (!manualActive || !onManualInput) return;
-      e.preventDefault();
-      const delta = Math.round(-e.deltaY / 40);
-      if (delta === 0) return;
-      onManualInput({ action: "mouse_wheel", delta });
-    },
-    [manualActive, onManualInput],
-  );
-
-  const onKeyDown = useCallback(
-    (e: React.KeyboardEvent) => {
-      if (!manualActive || !onManualInput) return;
-      e.preventDefault();
-      if (e.key === "Tab" || e.key.length !== 1) {
-        const special = keyToValue(e);
-        if (special) {
-          onManualInput({ action: "key", value: special });
-        }
-        return;
-      }
-      onManualInput({ action: "key", value: e.key });
-    },
-    [manualActive, onManualInput],
-  );
+  const liveRef = useRef<HTMLInputElement>(null);
+  const heldRef = useRef<Set<number>>(new Set());
+  const [hidStatus, setHidStatus] = useState("");
 
   useEffect(() => {
-    return () => {
-      if (rafRef.current !== null) {
-        cancelAnimationFrame(rafRef.current);
-      }
-    };
+    if (keyboardReady) {
+      liveRef.current?.focus();
+    } else {
+      heldRef.current.clear();
+    }
+  }, [keyboardReady]);
+
+  const send = useCallback((line: string) => {
+    queueKeyLine(line, setHidStatus);
   }, []);
+
+  const onLiveKeyDown = useCallback(
+    (e: React.KeyboardEvent<HTMLInputElement>) => {
+      e.preventDefault();
+      if (!keyboardReady || e.repeat) return;
+      const k = kc(e.code);
+      if (k === null) {
+        setHidStatus("unmapped key: " + e.code);
+        return;
+      }
+      heldRef.current.add(k);
+      send("p" + hidHex(k));
+    },
+    [keyboardReady, send],
+  );
+
+  const onLiveKeyUp = useCallback(
+    (e: React.KeyboardEvent<HTMLInputElement>) => {
+      e.preventDefault();
+      const k = kc(e.code);
+      if (k === null || !heldRef.current.has(k)) return;
+      heldRef.current.delete(k);
+      send("r" + hidHex(k));
+    },
+    [send],
+  );
+
+  const onLiveBlur = useCallback(() => {
+    heldRef.current.clear();
+    if (keyboardReady) send("a");
+    onBlur();
+  }, [keyboardReady, send, onBlur]);
 
   const showLiveBadge = !noUplink && piConnected;
 
@@ -190,26 +108,7 @@ export function VideoPane({
         aria-hidden
       />
 
-      <div
-        ref={paneRef}
-        className={`relative min-h-0 w-full flex-1 bg-black ${
-          manualActive ? "cursor-crosshair" : ""
-        }`}
-        tabIndex={manualActive ? 0 : -1}
-        onFocus={onFocus}
-        onBlur={onBlur}
-        onMouseMove={onMouseMove}
-        onMouseDown={onMouseDown}
-        onContextMenu={onContextMenu}
-        onWheel={onWheel}
-        onKeyDown={onKeyDown}
-        role={manualActive ? "application" : undefined}
-        aria-label={
-          manualActive
-            ? "Remote screen — move mouse to hover, click to send pointer; click then type for keys"
-            : "Remote screen"
-        }
-      >
+      <div className="relative min-h-0 w-full flex-1 bg-black">
         {noUplink ? (
           <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center gap-2 px-6 text-center text-sm opacity-60">
             <p className="font-mono text-xs uppercase tracking-widest">
@@ -249,39 +148,33 @@ export function VideoPane({
         >
           {badgeLabel}
         </div>
-
-        {manualActive && focused && (
-          <div className="pointer-events-none absolute bottom-3 left-3 border border-[var(--rule)] bg-[var(--foreground)] px-2 py-1 font-mono text-[10px] uppercase tracking-wide text-[var(--background)]">
-            Manual control active
-          </div>
-        )}
       </div>
+
+      {manualActive && (
+        <div className="flex shrink-0 flex-col gap-1 border-t border-[var(--rule)] bg-[var(--background)] p-2">
+          <input
+            ref={liveRef}
+            type="text"
+            autoComplete="off"
+            disabled={!keyboardReady}
+            placeholder="Click here and type: every key is sent live"
+            onFocus={onFocus}
+            onBlur={onLiveBlur}
+            onKeyDown={onLiveKeyDown}
+            onKeyUp={onLiveKeyUp}
+            className="w-full border border-[var(--rule)] bg-transparent px-2 py-2 text-sm placeholder:opacity-40 focus:outline focus:outline-1 focus:outline-[var(--rule)] disabled:opacity-50"
+            aria-label="Live keyboard to target"
+          />
+          <p className="font-mono text-[10px] opacity-60">
+            {hidStatus || "Keys go through the backend to Pi /key (same lines as /ui)"}
+          </p>
+          {focused && keyboardReady && (
+            <p className="font-mono text-[10px] uppercase tracking-wide">
+              Manual control active
+            </p>
+          )}
+        </div>
+      )}
     </div>
   );
-}
-
-function keyToValue(e: React.KeyboardEvent): string | null {
-  switch (e.key) {
-    case "Enter":
-      return "ENTER";
-    case "Backspace":
-      return "BACKSPACE";
-    case "Escape":
-      return "ESC";
-    case "ArrowUp":
-      return "UP";
-    case "ArrowDown":
-      return "DOWN";
-    case "ArrowLeft":
-      return "LEFT";
-    case "ArrowRight":
-      return "RIGHT";
-    case " ":
-      return "SPACE";
-    default:
-      if (e.key.startsWith("F") && e.key.length <= 3) {
-        return e.key.toUpperCase();
-      }
-      return null;
-  }
 }

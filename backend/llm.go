@@ -7,7 +7,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"image"
+	"image/jpeg"
 	"io"
+	"net"
 	"net/http"
 	"os"
 	"strings"
@@ -21,9 +24,18 @@ var errNoAPIKey = errors.New("OPENAI_API_KEY is not set")
 type AgentDecision struct {
 	Observation string `json:"observation"`
 	Thought     string `json:"thought"`
+	Pane        string `json:"pane"`
 	Action      string `json:"action"`
 	Value       string `json:"value"`
 	Done        bool   `json:"done"`
+}
+
+type AgentPlan struct {
+	Issue    string   `json:"issue"`
+	MenuPath string   `json:"menu_path"`
+	Verify   string   `json:"verify"`
+	Summary  string   `json:"summary"`
+	Steps    []string `json:"steps"`
 }
 
 type LLMClient struct {
@@ -40,7 +52,7 @@ func NewLLMClient() *LLMClient {
 	}
 	detail := strings.TrimSpace(os.Getenv("OPENAI_IMAGE_DETAIL"))
 	if detail == "" {
-		detail = "auto"
+		detail = "low"
 	}
 	return &LLMClient{
 		apiKey:      strings.TrimSpace(os.Getenv("OPENAI_API_KEY")),
@@ -57,16 +69,124 @@ func (c *LLMClient) Ready() error {
 	return nil
 }
 
-func (c *LLMClient) Decide(ctx context.Context, goal string, jpeg []byte, history []AgentDecision) (*AgentDecision, []byte, error) {
+func (c *LLMClient) Plan(ctx context.Context, goal string) (*AgentPlan, error) {
+	if err := c.Ready(); err != nil {
+		return nil, err
+	}
+	body := map[string]any{
+		"model": c.model,
+		"instructions": `You are the planner for a keyboard-only IP-KVM agent on a Lenovo ThinkPad T14s Gen 6 (AMD) UEFI BIOS.
+The operator goal is messy natural language. Your job is NOT to guess keys from the wording alone.
+1. Diagnose: map the goal to a BIOS *issue* using the PAGE ENCYCLOPEDIA (which tab, which submenu, why).
+2. Pick menu_path from real pages (Main / Config / Date/Time / Security / Setup=Startup / Restart).
+3. Emit HID steps the executor will follow one key at a time.
+
+Rules:
+- Use ONLY menus/submenus in the encyclopedia + live overlay. Do not invent top-level tabs.
+- Live HDMI labels this unit's boot tab "Setup"; docs say "Startup". Same page.
+- PRIMARY DEMO: anything about boot drive, boot order, Windows driver, Windows Boot Manager, which disk boots first → issue is boot priority. menu_path MUST be Setup → Boot. Follow the PRIMARY DEMO recipe. Never Config.
+- USB installer won't boot → still Setup (UEFI/Legacy, Boot) and maybe Security → Secure Boot — say so in issue.
+- Fan/USB charge/display → Config (Power / USB / Display).
+- Passwords, TPM, Secure Boot, camera missing → Security.
+- Left-nav travel is one UP/DOWN per step. The executor HID layer sends ENTER after each navbar UP/DOWN so the blue fill (open tab) moves. Do NOT list ENTER after every DOWN.
+- Use ENTER only to open a right-pane submenu (e.g. Boot) or a dialog.
+- verify: filled blue background on the target left-nav tab (not a thin hover border).`,
+		"input": []map[string]any{
+			{
+				"role": "user",
+				"content": []map[string]any{
+					{
+						"type": "input_text",
+						"text": t14sPlannerContext() + "\n\nOperator goal:\n" + goal,
+					},
+				},
+			},
+		},
+		"text": map[string]any{
+			"format": map[string]any{
+				"type":   "json_schema",
+				"name":   "agent_plan",
+				"strict": true,
+				"schema": agentPlanSchema(),
+			},
+		},
+	}
+	raw, err := c.postJSON(ctx, "https://api.openai.com/v1/responses", body)
+	if err != nil {
+		return nil, err
+	}
+	text, err := extractOutputText(raw)
+	if err != nil {
+		return nil, err
+	}
+	var plan AgentPlan
+	if err := json.Unmarshal([]byte(text), &plan); err != nil {
+		return nil, fmt.Errorf("parse plan JSON: %w", err)
+	}
+	return &plan, nil
+}
+
+func agentPlanSchema() map[string]any {
+	return map[string]any{
+		"type":                 "object",
+		"additionalProperties": false,
+		"required":             []string{"issue", "menu_path", "verify", "summary", "steps"},
+		"properties": map[string]any{
+			"issue": map[string]any{
+				"type":        "string",
+				"description": "BIOS problem in one or two sentences, citing the encyclopedia page (e.g. boot priority lives under Startup/Setup → Boot, not Config).",
+			},
+			"menu_path": map[string]any{
+				"type":        "string",
+				"description": "Exact path, e.g. Setup → Boot.",
+			},
+			"verify": map[string]any{
+				"type":        "string",
+				"description": "What the screen must show when the goal is complete.",
+			},
+			"summary": map[string]any{
+				"type":        "string",
+				"description": "Short navigation plan for the executor.",
+			},
+			"steps": map[string]any{
+				"type": "array",
+				"items": map[string]any{
+					"type": "string",
+				},
+				"description": "Ordered HID steps.",
+			},
+		},
+	}
+}
+
+func (c *LLMClient) Decide(ctx context.Context, goal string, jpeg []byte, history []AgentDecision, plan *AgentPlan) (*AgentDecision, []byte, error) {
 	if err := c.Ready(); err != nil {
 		return nil, nil, err
 	}
 
 	goalText := fmt.Sprintf("Operator goal:\n%s", goal)
+	if plan != nil && (plan.Summary != "" || plan.Issue != "" || len(plan.Steps) > 0) {
+		goalText += "\n\nAgreed diagnosis + plan (follow this; recover with LEFT/ESC if the JPEG disagrees):\n"
+		if plan.Issue != "" {
+			goalText += "Issue: " + plan.Issue + "\n"
+		}
+		if plan.MenuPath != "" {
+			goalText += "Menu path: " + plan.MenuPath + "\n"
+		}
+		if plan.Verify != "" {
+			goalText += "Done when: " + plan.Verify + "\n"
+		}
+		if plan.Summary != "" {
+			goalText += plan.Summary + "\n"
+		}
+		for i, s := range plan.Steps {
+			goalText += fmt.Sprintf("%d. %s\n", i+1, s)
+		}
+	}
 	if len(history) > 0 {
 		goalText += "\n\nPrior steps this run (newest last):\n"
 		for i, h := range history {
-			goalText += fmt.Sprintf("%d) action=%s value=%q done=%v — %s\n", i+1, h.Action, h.Value, h.Done, h.Observation)
+			goalText += fmt.Sprintf("%d) pane=%s action=%s value=%q done=%v — %s\n", i+1, h.Pane, h.Action, h.Value, h.Done, h.Observation)
 		}
 	}
 
@@ -90,15 +210,8 @@ func (c *LLMClient) Decide(ctx context.Context, goal string, jpeg []byte, histor
 	}
 
 	body := map[string]any{
-		"model": c.model,
-		"instructions": `You are a vision agent driving a remote machine over IP-KVM (BIOS/UEFI and text menus).
-Hardware is KEYBOARD ONLY — no mouse. You receive the goal, prior steps, and a JPEG of the HDMI screen.
-Return JSON for the next useful HID step only.
-- action "type" with value = full string to type in one step (e.g. "hello world").
-- action "key" with value = single key (ENTER, ESC, F2, UP, DOWN, LEFT, RIGHT, TAB, SPACE, or one letter).
-- action "wait" when the screen is mid-transition.
-- action "done" with done=true when the goal is finished (set observation to what you found).
-Repeat across turns until the goal is complete: e.g. type text, then next turn key ENTER.`,
+		"model":        c.model,
+		"instructions": t14sExecutorContext(),
 		"input": []map[string]any{
 			{
 				"role":    "user",
@@ -137,15 +250,20 @@ func agentDecisionSchema() map[string]any {
 	return map[string]any{
 		"type":                 "object",
 		"additionalProperties": false,
-		"required":             []string{"observation", "thought", "action", "value", "done"},
+		"required":             []string{"observation", "thought", "pane", "action", "value", "done"},
 		"properties": map[string]any{
 			"observation": map[string]any{
 				"type":        "string",
-				"description": "What is visible on the current screen.",
+				"description": "Which left-nav tab has the filled blue background (open page). Mention a thin hover border only if visible.",
 			},
 			"thought": map[string]any{
 				"type":        "string",
 				"description": "Short reasoning for the next action.",
+			},
+			"pane": map[string]any{
+				"type":        "string",
+				"enum":        []string{"left_nav", "right_content"},
+				"description": "left_nav if UP/DOWN would move the top-level tab hover; right_content if focus is in the page.",
 			},
 			"action": map[string]any{
 				"type": "string",
@@ -175,20 +293,67 @@ func (c *LLMClient) postJSON(ctx context.Context, url string, payload any) (json
 	req.Header.Set("Authorization", "Bearer "+c.apiKey)
 	req.Header.Set("Content-Type", "application/json")
 
-	res, err := c.http.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer res.Body.Close()
+	var lastErr error
+	for attempt := 0; attempt < 3; attempt++ {
+		if attempt > 0 {
+			select {
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			case <-time.After(time.Duration(attempt) * 800 * time.Millisecond):
+			}
+			req, err = http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(encoded))
+			if err != nil {
+				return nil, err
+			}
+			req.Header.Set("Authorization", "Bearer "+c.apiKey)
+			req.Header.Set("Content-Type", "application/json")
+		}
 
-	body, err := io.ReadAll(res.Body)
-	if err != nil {
-		return nil, err
+		res, err := c.http.Do(req)
+		if err != nil {
+			lastErr = err
+			if !retryableNetErr(err) {
+				return nil, err
+			}
+			continue
+		}
+
+		body, err := io.ReadAll(res.Body)
+		res.Body.Close()
+		if err != nil {
+			lastErr = err
+			if retryableNetErr(err) {
+				continue
+			}
+			return nil, err
+		}
+		if res.StatusCode < 200 || res.StatusCode >= 300 {
+			if res.StatusCode >= 500 || res.StatusCode == http.StatusTooManyRequests {
+				lastErr = fmt.Errorf("openai %s: %s", res.Status, truncate(string(body), 800))
+				continue
+			}
+			return nil, fmt.Errorf("openai %s: %s", res.Status, truncate(string(body), 800))
+		}
+		return json.RawMessage(body), nil
 	}
-	if res.StatusCode < 200 || res.StatusCode >= 300 {
-		return nil, fmt.Errorf("openai %s: %s", res.Status, truncate(string(body), 800))
+	return nil, lastErr
+}
+
+func retryableNetErr(err error) bool {
+	if err == nil {
+		return false
 	}
-	return json.RawMessage(body), nil
+	if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {
+		return true
+	}
+	var ne net.Error
+	if errors.As(err, &ne) && ne.Timeout() {
+		return true
+	}
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "connection reset") ||
+		strings.Contains(msg, "broken pipe") ||
+		strings.Contains(msg, "connection refused")
 }
 
 func extractOutputText(raw json.RawMessage) (string, error) {
@@ -235,4 +400,44 @@ func truncate(s string, n int) string {
 		return s
 	}
 	return s[:n] + "…"
+}
+
+const llmMaxWidth = 720
+const llmJPEGQuality = 62
+
+// compressForLLM downscales and re-encodes for the OpenAI POST only (live MJPEG unchanged).
+func compressForLLM(jpegIn []byte) []byte {
+	if len(jpegIn) == 0 {
+		return jpegIn
+	}
+	img, err := jpeg.Decode(bytes.NewReader(jpegIn))
+	if err != nil {
+		return jpegIn
+	}
+	b := img.Bounds()
+	srcW, srcH := b.Dx(), b.Dy()
+	if srcW <= 0 || srcH <= 0 {
+		return jpegIn
+	}
+	dstW, dstH := srcW, srcH
+	if dstW > llmMaxWidth {
+		dstH = dstH * llmMaxWidth / dstW
+		dstW = llmMaxWidth
+	}
+	dst := image.NewRGBA(image.Rect(0, 0, dstW, dstH))
+	for y := 0; y < dstH; y++ {
+		sy := b.Min.Y + y*srcH/dstH
+		for x := 0; x < dstW; x++ {
+			sx := b.Min.X + x*srcW/dstW
+			dst.Set(x, y, img.At(sx, sy))
+		}
+	}
+	var buf bytes.Buffer
+	if err := jpeg.Encode(&buf, dst, &jpeg.Options{Quality: llmJPEGQuality}); err != nil {
+		return jpegIn
+	}
+	if buf.Len() == 0 || buf.Len() >= len(jpegIn) {
+		return jpegIn
+	}
+	return buf.Bytes()
 }

@@ -8,6 +8,7 @@ export type StatusResponse = {
   pi_connected?: boolean;
   stream_width?: number;
   stream_height?: number;
+  qnx_key_url?: string;
 };
 
 async function postJSON<T>(path: string, body: unknown): Promise<T> {

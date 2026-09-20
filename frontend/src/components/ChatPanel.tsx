@@ -195,8 +195,8 @@ export function ChatPanel({
       <div className="shrink-0 border-t border-[var(--rule)] p-3">
         {mode === "manual" ? (
           <p className="border border-dashed border-[var(--rule)] p-3 text-xs leading-relaxed opacity-80">
-            Focus the video to drive the target. Keyboard and mouse are sent only
-            while the pane is focused.
+            Click the box under the video and type. Keys are proxied by the
+            backend to Pi <code className="border border-[var(--rule)] px-1">/key</code>.
           </p>
         ) : (
           <>

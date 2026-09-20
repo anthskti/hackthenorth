@@ -19,6 +19,7 @@ func main() {
 	})
 	pi := NewPiClient()
 	store.SetStreamSize(pi.streamWidth, pi.streamHeight)
+	store.SetQnxKeyUrl(pi.KeyURL())
 	hub = NewHub(store, pi)
 	frames := NewFrameBuffer()
 	llm := NewLLMClient()
@@ -55,7 +56,7 @@ func main() {
 		c.JSON(http.StatusOK, gin.H{"message": "pong"})
 	})
 
-	registerAPI(router, store, hub, agent)
+	registerAPI(router, store, hub, agent, pi)
 
 	router.GET("/video/stream", pi.HandleStream(frames, store))
 	router.GET("/ws/dashboard", hub.HandleDashboardWS)

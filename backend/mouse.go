@@ -54,38 +54,16 @@ func mouseButtonClickCmd(button string) string {
 	}
 }
 
-func (p *PiClient) SendMouseMoveTo(ctx context.Context, state *manualPointerState, x, y int) error {
-	if state == nil {
-		return nil
-	}
-	dx := x - state.x
-	dy := y - state.y
-	if dx == 0 && dy == 0 {
-		return nil
-	}
+func (p *PiClient) SendMouseDelta(ctx context.Context, dx, dy int) error {
 	cmds := mouseMoveCommands(dx, dy)
 	if len(cmds) == 0 {
 		return nil
 	}
-	if err := p.SendCommands(ctx, cmds...); err != nil {
-		return err
-	}
-	state.x = x
-	state.y = y
-	return nil
+	return p.SendCommands(ctx, cmds...)
 }
 
-func (p *PiClient) SendMouseClick(ctx context.Context, state *manualPointerState, x, y int, button string) error {
-	var cmds []string
-	if state != nil {
-		dx := x - state.x
-		dy := y - state.y
-		cmds = append(cmds, mouseMoveCommands(dx, dy)...)
-		state.x = x
-		state.y = y
-	}
-	cmds = append(cmds, mouseButtonClickCmd(button))
-	return p.SendCommands(ctx, cmds...)
+func (p *PiClient) SendMouseClick(ctx context.Context, button string) error {
+	return p.SendCommands(ctx, mouseButtonClickCmd(button))
 }
 
 func (p *PiClient) SendMouseWheel(ctx context.Context, delta int) error {
@@ -99,9 +77,4 @@ func (p *PiClient) SendMouseWheel(ctx context.Context, delta int) error {
 		delta = -9999
 	}
 	return p.SendCommands(ctx, fmt.Sprintf("w%d", delta))
-}
-
-type manualPointerState struct {
-	x int
-	y int
 }

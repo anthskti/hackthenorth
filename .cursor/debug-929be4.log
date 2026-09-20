@@ -1,0 +1,6 @@
+{"data":{"detail":"low","jsonBytes":36771,"model":"gpt-4o"},"hypothesisId":"H2","location":"llm.go:postJSON","message":"openai request body size","sessionId":"929be4","timestamp":1789864536481}
+{"data":{"attempt":1,"bodyBytes":3932,"elapsedMs":2874,"proto":"HTTP/2.0","status":200},"hypothesisId":"H3","location":"llm.go:postJSON","message":"openai http response","sessionId":"929be4","timestamp":1789864539417}
+{"data":{"detail":"low","jsonBytes":36895,"model":"gpt-4o"},"hypothesisId":"H2","location":"llm.go:postJSON","message":"openai request body size","sessionId":"929be4","timestamp":1789864547461}
+{"data":{"attempt":1,"bodyBytes":3993,"elapsedMs":2315,"proto":"HTTP/2.0","status":200},"hypothesisId":"H3","location":"llm.go:postJSON","message":"openai http response","sessionId":"929be4","timestamp":1789864549778}
+{"data":{"detail":"low","jsonBytes":37022,"model":"gpt-4o"},"hypothesisId":"H2","location":"llm.go:postJSON","message":"openai request body size","sessionId":"929be4","timestamp":1789864557821}
+{"data":{"attempt":1,"elapsedMs":1960,"err":"Post \"https://api.openai.com/v1/responses\": context canceled","retryable":false},"hypothesisId":"H1","location":"llm.go:postJSON","message":"openai http.Do error","sessionId":"929be4","timestamp":1789864559783}

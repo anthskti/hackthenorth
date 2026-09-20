@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"strings"
 	"sync"
 	"time"
 )
@@ -36,6 +37,7 @@ type StatusResponse struct {
 	PiConnected   bool        `json:"pi_connected"`
 	StreamWidth   int         `json:"stream_width"`
 	StreamHeight  int         `json:"stream_height"`
+	QnxKeyUrl     string      `json:"qnx_key_url,omitempty"`
 }
 
 type Store struct {
@@ -46,6 +48,7 @@ type Store struct {
 	piConnected  bool
 	streamWidth  int
 	streamHeight int
+	qnxKeyUrl    string
 	onChange     func()
 }
 
@@ -91,6 +94,7 @@ func (s *Store) Snapshot() StatusResponse {
 		PiConnected:  s.piConnected,
 		StreamWidth:  s.streamWidth,
 		StreamHeight: s.streamHeight,
+		QnxKeyUrl:    s.qnxKeyUrl,
 	}
 	if s.mode == ModeAI {
 		st := s.state
@@ -152,6 +156,12 @@ func (s *Store) LogMessage(text string) []byte {
 		"ts":   time.Now().UnixMilli(),
 	})
 	return b
+}
+
+func (s *Store) SetQnxKeyUrl(url string) {
+	s.mu.Lock()
+	s.qnxKeyUrl = strings.TrimSpace(url)
+	s.mu.Unlock()
 }
 
 func (s *Store) SetStreamSize(width, height int) {

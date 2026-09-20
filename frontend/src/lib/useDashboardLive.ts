@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { dashboardWebSocketUrl } from "@/lib/backend";
 import { fetchStatus } from "@/lib/api";
-import type { AgentState, LogEntry, ManualInputPayload, Mode } from "@/lib/types";
+import type { AgentState, LogEntry, Mode } from "@/lib/types";
 
 type StatusMessage = {
   type: "status";
@@ -36,6 +36,7 @@ function applySnapshot(
   setLogs: (l: LogEntry[]) => void,
   setPiConnected: (p: boolean) => void,
   setStreamSize: (w: number, h: number) => void,
+  setQnxKeyUrlState: (url: string) => void,
 ) {
   setMode(snap.mode);
   setState(snap.mode === "ai" ? (snap.state ?? "idle") : null);
@@ -45,6 +46,7 @@ function applySnapshot(
     snap.stream_width ?? DEFAULT_STREAM_WIDTH,
     snap.stream_height ?? DEFAULT_STREAM_HEIGHT,
   );
+  setQnxKeyUrlState(snap.qnx_key_url || "http://172.20.10.3:8080/key");
 }
 
 type UseDashboardLiveOptions = {
@@ -60,6 +62,7 @@ export function useDashboardLive(options: UseDashboardLiveOptions = {}) {
   const [piConnected, setPiConnected] = useState(false);
   const [streamWidth, setStreamWidth] = useState(DEFAULT_STREAM_WIDTH);
   const [streamHeight, setStreamHeight] = useState(DEFAULT_STREAM_HEIGHT);
+  const [qnxKeyUrl, setQnxKeyUrlState] = useState("");
   const [backendReachable, setBackendReachable] = useState(false);
 
   const setStreamSize = useCallback((w: number, h: number) => {
@@ -75,7 +78,15 @@ export function useDashboardLive(options: UseDashboardLiveOptions = {}) {
     try {
       const snap = await fetchStatus();
       setBackendReachable(true);
-      applySnapshot(snap, setMode, setState, setLogs, setPiConnected, setStreamSize);
+      applySnapshot(
+        snap,
+        setMode,
+        setState,
+        setLogs,
+        setPiConnected,
+        setStreamSize,
+        setQnxKeyUrlState,
+      );
     } catch {
       setBackendReachable(false);
     }
@@ -83,7 +94,15 @@ export function useDashboardLive(options: UseDashboardLiveOptions = {}) {
 
   const applySnapshotFromServer = useCallback((snap: Awaited<ReturnType<typeof fetchStatus>>) => {
     setBackendReachable(true);
-    applySnapshot(snap, setMode, setState, setLogs, setPiConnected, setStreamSize);
+    applySnapshot(
+      snap,
+      setMode,
+      setState,
+      setLogs,
+      setPiConnected,
+      setStreamSize,
+      setQnxKeyUrlState,
+    );
   }, [setStreamSize]);
 
   useEffect(() => {
@@ -153,14 +172,6 @@ export function useDashboardLive(options: UseDashboardLiveOptions = {}) {
     };
   }, [hydrate, enabled]);
 
-  const sendManualInput = useCallback((payload: ManualInputPayload) => {
-    const ws = wsRef.current;
-    if (!ws || ws.readyState !== WebSocket.OPEN) {
-      return;
-    }
-    ws.send(JSON.stringify({ type: "manual_input", ...payload }));
-  }, []);
-
   return {
     mode,
     state,
@@ -169,8 +180,8 @@ export function useDashboardLive(options: UseDashboardLiveOptions = {}) {
     piConnected,
     streamWidth,
     streamHeight,
+    qnxKeyUrl,
     backendReachable,
     applySnapshotFromServer,
-    sendManualInput,
   };
 }

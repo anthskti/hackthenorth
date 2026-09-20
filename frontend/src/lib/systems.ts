@@ -11,21 +11,21 @@ export type System = {
 export const SYSTEMS: System[] = [
   {
     id: "qnx-target",
-    name: "QNX Raspberry Pi 5 Target",
+    name: "AWS Server 2",
     role: "Embedded System",
     status: "ONLINE",
     live: true,
   },
   {
     id: "boot-lab",
-    name: "Boot Lab",
+    name: "AWS Server 3",
     role: "BIOS / bootloader bench",
     status: "STANDBY",
     live: false,
   },
   {
     id: "recovery-node",
-    name: "Recovery Node",
+    name: "AWS Server 4",
     role: "OS update pipeline",
     status: "STANDBY",
     live: false,
