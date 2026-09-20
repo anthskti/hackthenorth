@@ -14,19 +14,19 @@
 
 ## Inspiration
 
-During a major data-center outage, tens to hundreds of servers can end up bricked or unreachable by every remote tool that lives inside an OS. A bad firmware or kernel update is enough. SSH is gone, the remote desktop is gone, and the fix is a technician walking to the rack with a monitor and a keyboard.
+During a major data-center outage, tens to hundreds of servers can end up bricked or unreachable by every remote tool that lives at the OS level. A bad firmware or kernel update is enough. Traditionally, troubleshooting that means technicians on site — often many of them.
 
-AI coding agents have the same ceiling. They can write code, run commands, read a stack trace — but only inside an operating system. The moment the failure is *below* the OS, a corrupted bootloader, a BIOS setting, a reinstall, the agent has nothing to act inside.
+AI coding agents hit the same ceiling. They can write code, run commands, read a stack trace — but only inside an operating system. The moment the failure is *below* the OS, a corrupted bootloader, a BIOS setting, a reinstall, the agent has nothing to act inside.
 
 IP-KVM already solves the remote half of this: see and control a machine over the network when SSH is not an option. But a human is still doing the clicking. orcactl is the next step.
 
 ## What it does
 
-orcactl plugs into a machine through its **hardware**: it reads the screen over HDMI and acts as a **USB keyboard and mouse**.
+orcactl connects to each machine through its **hardware**: reading directly from HDMI and emulating keyboard and mouse input as a USB peripheral.
 
-Because the connection is physical, the target needs **no software, no agent and no network**. It works on a machine that has never been configured, is mid-reinstall, or is sitting at a BIOS prompt with no OS at all.
+That means it works on any machine **out of the box, with no software installed** — one that has never been configured, is mid-reinstall, or is sitting at a BIOS prompt with no OS at all. Switching between servers is just re-plugging.
 
-Give it a goal and it iterates on its own — capture the screen, decide, send input, verify what changed, repeat. One controller can be pointed at several machines to triage them together.
+On request, orcactl autonomously iterates to solve an issue, capturing the display and sending input until it is done. This **scales to diagnosing and interpreting several connected machines at once**.
 
 <div align="center">
   <img src="docs/img/dashboard.png" alt="The orcactl dashboard: live screen, agent chat, action log" width="820">
@@ -62,36 +62,41 @@ Give it a goal and it iterates on its own — capture the screen, decide, send i
   OpenAI vision agent                      MJPEG + WebSocket
 ```
 
-**The QNX layer.** A Raspberry Pi 5 running QNX sits between the agent and the machine, owning both directions. We wrote a C daemon, `kvmd`, that pulls frames from the capture card through the QNX sensor framework, encodes them as JPEG and streams them over HTTP as MJPEG. The same daemon exposes `POST /key`, validates every command against an allowlist, and forwards it down the UART.
+orcactl uses a **Raspberry Pi 5** running QNX, connected over GPIO pins on UART to an **Arduino Leonardo** (Pi TX to Leonardo RX, plus ground). The QNX Pi acts as the middle layer between our agent system and the machine, handling both input and output.
 
-**Why there is an Arduino.** The Pi 5 cannot act as a USB peripheral — its ports are host-only and the QNX BSP has no device-controller driver — so it cannot pretend to be a keyboard. Input commands are forwarded over the Pi's GPIO UART to an Arduino Leonardo running our C++ firmware, which maps them to real USB keystrokes and mouse coordinates. We use NicoHood's HID-Project library so the board presents as a **boot-protocol** device, which is what firmware expects and is the reason it works in BIOS and UEFI menus.
+Because the Pi 5 does not support acting as a USB peripheral, input commands are forwarded to the Leonardo, which maps and sends the keystrokes and mouse coordinates.
+
+**Video.** We wrote a C daemon on QNX that converts HDMI frame data from a Guermok capture card sensor into images and streams them over HTTP to our webserver.
+
+**Input.** Commands go over the Pi's GPIO UART to the Arduino, which runs our C++ firmware to map them to USB as keyboard and mouse. We used NicoHood's HID-Project library so the board also emulates a **boot-protocol** device — regular USB devices are generally not supported in BIOS and UEFI menus.
 
 <div align="center">
   <img src="docs/img/controller.jpg" alt="Inside the controller: Arduino Leonardo above, Raspberry Pi 5 below" width="440">
   <br><em>Inside the controller — Leonardo on top, Pi 5 underneath, joined by three jumper wires</em>
 </div>
 
-**The web layer.** A Next.js client hosts the dashboard; a Go backend on Gin relays video, holds the WebSocket to the browser and drives the agent loop. Screenshots go to the OpenAI API, which builds context on what is on screen.
+**The web layer.** A Next.js client hosts the dashboard, while the backend runs on Go's Gin framework. We use the OpenAI API, which continuously receives screenshots and gathers context on what is on the display.
 
-**The agent.** In autonomous mode a master agent drafts a plan, then a vision model works through it step by step, confirming from the next frame that each step actually landed before moving on.
+**The agent.** In autonomous mode, **a master agent drafts a plan and a vision model iterates over the steps**, confirming each one was executed correctly before moving on.
 
 ## Challenges we ran into
 
-- **QNX is not Linux.** Getting libraries to build and code to cross-compile took real time.
-- **The Pi 5 cannot be a USB device**, which we found out the hard way. That pivot is why the Leonardo is in the design at all.
-- **Networking between four moving parts** — Pi, target, backend and two laptops — on venue Wi-Fi.
+- **QNX quirks** — using libraries, and compiling and linking code.
+- **The Pi 5 does not support device-mode USB**, so after a lot of investigation into supported drivers we pivoted to adding an Arduino input controller.
+- **Networking** — configuring and troubleshooting connections between the devices, the webapp and our laptops.
+- **Prompting the agent** to navigate BIOS menus correctly.
 
 ## Accomplishments that we're proud of
 
-Building a genuine embedded system, and then watching our own hardware agent drive a machine remotely from a laptop across the table.
+Making an embedded system, and being able to watch our hardware agent run remotely on all of our laptops.
 
 ## What we learned
 
-The QNX development environment, and how to design an AI agent that acts on the physical world instead of an API.
+The QNX development environment, AI agent design, and USB protocols.
 
 ## What's next for orcactl
 
-Running against many machines at once.
+Running on more devices concurrently :)
 
 ---
 
